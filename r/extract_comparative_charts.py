@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Extract five ACCC 2006-07 comparative bar charts from the original vector PDF.
 
-Usage: python extract_comparative_charts_v3.py REPORT.pdf OUTPUT.csv
+Usage: python extract_comparative_charts.py REPORT.pdf OUTPUT.csv
 Requires: python -m pip install pymupdf
 
 Outputs one observation per drawn bar, keeping native units. Financial-year `year`
@@ -26,6 +26,11 @@ CHARTS = {
     39: dict(chart='2.8', measure='aero_operating_profit_per_pax', adjustment='reported', units='AUD per passenger', top=115, bottom=337),
 }
 AIRPORTS = ('MEL', 'PER', 'BNE', 'SYD', 'ADL', 'CBR', 'DRW')
+
+# The source charts cover 1997-98 through 2006-07. Some airports have
+# shorter histories, but their final plotted bar must be 2006-07.
+FIRST_YEAR = 1998
+LAST_YEAR = 2007
 
 
 def axis_ticks(page, number, spec):
@@ -99,7 +104,31 @@ def bar_groups(page, number, spec):
     return bars, groups
 
 
+def validate_year_sequences(rows):
+    """Catch missing, duplicated, or misassigned financial years within each chart."""
+    for spec in CHARTS.values():
+        for airport in AIRPORTS:
+            years = sorted(
+                row['year'] for row in rows
+                if row['chart'] == spec['chart'] and row['airport'] == airport
+            )
+            if (
+                not years
+                or years[-1] != LAST_YEAR
+                or years[0] < FIRST_YEAR
+                or years != list(range(years[0], LAST_YEAR + 1))
+            ):
+                raise ValueError(
+                    f'Unexpected year sequence for {airport}, '
+                    f'Chart {spec["chart"]}: {years}'
+                )
+
+
 def extract(path):
+    # Reconstruct bar values from PDF geometry using the calibrated y-axis.
+    # Bar spacing assigns each observation to a financial year; this relies
+    # on the fixed graphical layout of the 2006-07 report and is not a
+    # general-purpose PDF chart extractor. Keep geometry for auditing.
     rows = []
     with pymupdf.open(path) as pdf:
         for number, spec in CHARTS.items():
@@ -131,12 +160,13 @@ def extract(path):
     keys = [(r['pdf_page'], r['airport'], r['year']) for r in rows]
     if len(keys) != len(set(keys)):
         raise ValueError('Duplicate page-airport-year keys detected; inspect bar positions')
+    validate_year_sequences(rows)
     return rows
 
 
 def main():
     if len(sys.argv) != 3:
-        sys.exit('Usage: python extract_comparative_charts_v3.py REPORT.pdf OUTPUT.csv')
+        sys.exit('Usage: python extract_comparative_charts.py REPORT.pdf OUTPUT.csv')
     rows = extract(sys.argv[1])
     output = Path(sys.argv[2])
     output.parent.mkdir(parents=True, exist_ok=True)

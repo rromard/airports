@@ -1,4 +1,5 @@
 # ACCC airport monitoring supplementary database parser
+# Meant to extract data from the ACCC's workbooks and produce tidy data sets
 # Designed for: accc-airport-monitoring-report-2024-25-supplementary-database.xlsx
 
 library(tidyverse)
@@ -46,6 +47,13 @@ clean_terminal_heading <- function(x, airport) {
     str_squish()
 }
 
+# Read the supplementary workbook at cell level rather than as rectangular
+# tables. ACCC sheets contain multiple sections, repeated headings and
+# different table layouts. Preserve cell coordinates so observations can
+# be assigned to the appropriate section and reporting year.
+#
+# Chart-only sheets are excluded. The remaining sheets are classified
+# by airport and broad subject area.
 read_accc_cells <- function(path) {
   xlsx_cells(path) |>
     filter(!str_detect(sheet, regex(" charts$", ignore_case = TRUE))) |>
@@ -97,6 +105,9 @@ find_section_row <- function(labels,
   if (length(rows) == 0) default else min(rows)
 }
 
+# Most sheets identify reporting years in the first row. Some tables use
+# their own year headings within the sheet, requiring a section-specific
+# lookup. Both approaches map Excel columns to financial years.
 make_global_year_lookup <- function(cells) {
   cells |>
     filter(row == 1, !is.na(year_label)) |>
@@ -134,8 +145,10 @@ make_local_year_lookup <- function(cells,
   out
 }
 
-# Pull the actual observations that sit in columns identified as years.
-# value is numeric; value_text preserves unusual text-valued observations.
+# Extract observations from columns mapped to reporting years.
+# Retain the original source row for subsequent joins to measure labels.
+# Numeric values are used for calculations; optional text values preserve
+# non-numeric entries for inspection without treating them as zero.
 extract_year_values <- function(cells,
                                 year_lookup,
                                 sheet_name,
@@ -196,7 +209,9 @@ rows_with_year_entries <- function(cells,
     mutate(has_year_entry = TRUE)
 }
 
-# Convert columns A:D in the metadata-style tables to one row per source row.
+# Extract the identifying columns (airport, market, terminal, indicator)
+# from the quality-rating tables, retaining source row numbers so they
+# can be joined to the separately extracted annual values.
 make_meta_table <- function(cells,
                             sheet_name,
                             from_row,
@@ -320,6 +335,9 @@ parse_airport_financial_sheet <- function(cells,
 # Total-airport quality data
 # -----------------------------------------------------------------------------
 
+# Extract annual financial and operational measures from the main airport sheet.
+# The financial section runs from the first data row to the staff or quality
+# section, whichever appears first. Row labels supply the measure names.
 parse_airport_quality_sheet <- function(cells,
                                         labels,
                                         global_years,
@@ -433,6 +451,9 @@ parse_airport_quality_sheet <- function(cells,
 # Car-parking and landside financial data
 # -----------------------------------------------------------------------------
 
+# Extract online-booking, car-parking and landside financial/operational
+# measures from their respective worksheet sections. Preserve online-booking
+# subgroups because Perth reports separate precincts.
 parse_carpark_financial_sheet <- function(cells,
                                           labels,
                                           global_years,
@@ -531,6 +552,9 @@ parse_carpark_financial_sheet <- function(cells,
 # Car-parking objective indicators
 # -----------------------------------------------------------------------------
 
+# Extract car-parking objective indicators, assigning each observation to
+# its precinct using the preceding section heading. Exclude headings that
+# describe the table itself rather than an individual precinct.
 parse_carpark_objective_sheet <- function(cells,
                                           labels,
                                           global_years,
@@ -605,6 +629,9 @@ parse_carpark_objective_sheet <- function(cells,
 # Character ratings tables (car park and landside)
 # -----------------------------------------------------------------------------
 
+# Parse the car-parking and landside passenger rating tables, which use
+# identifying columns A:D and locally defined annual columns from E onward.
+# Ratings are retained as text because their contents need not be numeric.
 parse_rating_table <- function(cells,
                                sheet_name,
                                header_row,
@@ -695,6 +722,11 @@ parse_carpark_ratings_sheet <- function(cells,
 # Landside objective indicators
 # -----------------------------------------------------------------------------
 
+# Extract landside objective indicators using the local year headings and
+# identifying columns A:D. In Melbourne and Sydney, some observations appear
+# on rows without their identifying metadata. Where exactly one unmatched
+# value row and one matching metadata row exist, recover the association
+# while recording the original metadata row and repair status.
 parse_landside_objective_sheet <- function(cells,
                                            labels,
                                            sheet_name) {
@@ -704,6 +736,7 @@ parse_landside_objective_sheet <- function(cells,
     "^Landside objective"
   )
 
+  # Note: the type "landslide" is actually present in the ACCC data
   objective_header <- find_metadata_header_row(
     cells,
     sheet_name,
@@ -901,8 +934,8 @@ build_parse_diagnostics <- function(parsed) {
   )
 }
 
-# Optional validation against the 2024-25 workbook used to develop this parser.
-validate_accc_2024_25 <- function(parsed) {
+# Validate parsed row counts against the expected 2024-25 workbook.
+validate_accc_2024_25 <- function(parsed, diagnostics = build_parse_diagnostics(parsed)) {
   expected <- tribble(
     ~table,                ~rows,
     "airport_financial",    3189,
@@ -913,19 +946,22 @@ validate_accc_2024_25 <- function(parsed) {
     "landside_objective",     94,
     "landside_ratings",       93
   )
-
-  observed <- parsed$diagnostics$summary |>
+  
+  observed <- diagnostics$summary |>
     select(table, observed = rows)
-
+  
   expected |>
     left_join(observed, by = "table") |>
-    mutate(ok = rows == observed)
+    mutate(ok = !is.na(observed) & rows == observed)
 }
 
 # -----------------------------------------------------------------------------
 # Main wrapper
 # -----------------------------------------------------------------------------
 
+# Read the supplementary workbook once and apply the relevant parsers to
+# each airport's total/aeronautical and car-parking/landside worksheets.
+# Return the seven standardized tables, with optional raw cells and lookups.
 parse_accc_airports <- function(path, keep_raw = FALSE) {
   cells <- read_accc_cells(path)
   labels <- make_row_labels(cells)
@@ -978,8 +1014,6 @@ parse_accc_airports <- function(path, keep_raw = FALSE) {
     )
   )
 
-  #parsed$diagnostics <- build_parse_diagnostics(parsed)
-
   if (keep_raw) {
     parsed$cells <- cells
     parsed$labels <- labels
@@ -989,8 +1023,6 @@ parse_accc_airports <- function(path, keep_raw = FALSE) {
   parsed
 }
 
-# parsed$diagnostics <- build_parse_diagnostics(parsed)
-
 # Main call and export ---------------------------------------------------------------------
 accc <- parse_accc_airports(
   here::here("data", "australia", "accc-airport-monitoring-report-2024-25-supplementary-database.xlsx")
@@ -998,6 +1030,10 @@ accc <- parse_accc_airports(
 
 write_rds(accc, here("data", "australia", "accc_monitor_data_2005_2025.rds"))
 writexl::write_xlsx(accc, here("data", "australia", "accc_monitor_data_2005_2025.xlsx"))
+
+# Diagnostics are kept separate from the flat list of exportable tables.
+diagnostics <- build_parse_diagnostics(accc)
+validation <- validate_accc_2024_25(accc)
 
 # Prepare a financial subset
 aero_fin  <- accc$airport_financial

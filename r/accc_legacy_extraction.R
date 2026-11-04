@@ -1,7 +1,35 @@
 # ACCC legacy airport data: 2006-07 report -------------------------------------
-# Chart 2.1/2.2/2.4/2.7/2.8 (vector graphics) + monitoring tables 4.2/7.2/8.2/9.2.
-# R orchestrates extraction; Python/PyMuPDF reads chart geometry.
-# Financial years identified by their ending year (2003 = 2002-03).
+# Purpose:
+#   Reconstruct historical Australian airport financial observations from
+#   comparative charts and monitoring tables in the ACCC 2006-07 report.
+#
+# Coverage:
+#   - Brisbane, Melbourne, Perth and Sydney.
+#   - Comparative charts: up to 1997-98 through 2006-07.
+#   - Financial monitoring tables: 2002-03 through 2006-07.
+#   - Sydney 1997-98 revenue per passenger supplemented from FAC records.
+#
+# Main calculations:
+#   - Extract passengers, aeronautical revenue, expenditure and operating
+#     profit from PDF charts using the accompanying Python script.
+#   - Extract revenue, expenditure and operating profit by service category
+#     from historical ACCC monitoring tables.
+#   - Calculate unadjusted aeronautical revenue per passenger.
+#   - Check financial-table arithmetic and compare overlapping revenue
+#     measures, noting differences in reporting scope.
+#
+# Main outputs (output/):
+#   - accc_legacy_vector_selected.csv
+#       Historical chart series used by the counterfactual script.
+#   - accc_legacy_financial_tables.csv
+#       Revenue, expenditure and profit by service category.
+#   - accc_legacy_unadjusted_revenue_per_pax.csv
+#       Derived historical revenue per passenger.
+#   - diagnostics/accc_legacy_*.csv
+#       Source extraction and reconciliation audit files.
+#
+# Financial years use their ending year (2003 = 2002-03).
+# Chart-derived observations are approximate, not audited tabular values.
 
 xfun::pkg_attach("tidyverse", "here", "pdftools")
 
@@ -76,7 +104,7 @@ stopifnot(all(accc_vector$pdf_page %in% chart_manifest$pdf_page))
 syd98 <- tibble(
   airport = "SYD",
   year = 1998L,
-  fyear  = "1998-98",
+  fyear  = fyear_label(1998),
   chart = 2.2,
   pdf_page = 31,
   measure = "aero_revenue_per_pax",
