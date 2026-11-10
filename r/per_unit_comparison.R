@@ -75,7 +75,7 @@ assert_unique <- function(data, cols, label) {
 }
 
 # SOURCES -----------------------------------------------------------------
-can_recent_path <- here('output', 'Airport privatization CCPA sheet.xlsx')
+can_recent_path <- here('output', 'big4_long.csv')
 can_historical_path <- here('data', 'canada', 'operator_reports',
                             'canadian_big4_aeronautical_revenue_2015_2022.xlsx')
 aus_fin_path <- here('output', 'accc_airport_financial_analysis_2007_2025.xlsx')
@@ -268,7 +268,7 @@ can_lookup <- c(
   'Income Tax Expense' = 'income_tax_expense_can',
   'Income tax expense' = 'income_tax_expense_can'
 )
-can_recent <- read_excel(can_recent_path, sheet = 'Big 4 long') |>
+can_recent <- read_csv(can_recent_path) |>
   transmute(
     airport = recode(as.character(airport), Pearson = 'YYZ', Calgary = 'YYC',
                      Montreal = 'YUL', Vancouver = 'YVR'),
@@ -1053,3 +1053,4 @@ message('Australian CPI: ABS ', abs_id,
         '; supplementary data were already in constant FY2024–25 AUD.')
 message('Sydney: SCACH Jan–Dec 2023–2025 financing/net results; ACCC June FY operating results.')
 print(growth_summary |> arrange(country, airport), n = Inf)
+

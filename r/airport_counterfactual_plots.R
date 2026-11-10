@@ -18,8 +18,16 @@ ebitda <- readxl::read_excel(file.path(in_dir, 'airport_counterfactual.xlsx'),
                             sheet = 'EBITDA_pooled')
 
 scenario_order <- c('GRADUAL', 'CAP_THEN_SHOCK', 'IMMEDIATE_SHOCK')
+# Labels follow the main model's selected trajectory, not a hardcoded default.
+reported_gradual_label <- unique(paths$label[paths$scenario == 'GRADUAL'])
+if (length(reported_gradual_label) != 1L || is.na(reported_gradual_label)) {
+  stop('Cannot determine GRADUAL reporting mode from scenario_growth_paths.csv.')
+}
+gradual_plot_label <- if (grepl('pandemic-adjusted', reported_gradual_label,
+                               fixed = TRUE))
+  'Australian growth (adjusted)' else 'Australian growth (observed)'
 scenario_names <- c(
-  GRADUAL = 'Australian growth',
+  GRADUAL = gradual_plot_label,
   CAP_THEN_SHOCK = 'Cap, then shock',
   IMMEDIATE_SHOCK = 'Immediate shock'
 )
@@ -284,6 +292,7 @@ pp_paths <- bind_rows(
 
 p12 <- ggplot(pp_paths, aes(year, pp, colour = series)) +
   geom_line(linewidth = 0.95) +
+  geom_point() +
   facet_wrap(~ airport, scales = 'free_y', ncol = 3) +
   scale_x_continuous(breaks = c(2015, 2020, 2025)) +
   scale_y_continuous(labels = scales::label_dollar(accuracy = 1)) +

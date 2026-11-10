@@ -3,7 +3,8 @@
 # THREE EMPIRICAL PATHS, applied to each Canadian airport's actual 2015
 # aeronautical + AIF revenue per passenger (constant 2025 CAD):
 #
-# 1. GRADUAL:         Australian 2015-2025 average real revenue/pax growth.
+# 1. GRADUAL:         Australian 2015-2025 real yield growth (observed or
+#                      2020-2022 pandemic-adjusted via gradual_mode).
 # 2. CAP_THEN_SHOCK:  Australian 1998-2007 history mapped to Canada 2015-2024.
 #                      The post-cap increases beginning in 2002 map to 2019.
 # 3. IMMEDIATE_SHOCK: Australian 2001-2007 history mapped to Canada 2015-2021.
@@ -21,7 +22,7 @@
 # Canadian passenger volumes are held fixed: no price/demand feedback is
 # modelled. Incremental revenue increases EBITDA dollar-for-dollar only
 # under the separate fixed-operating-cost assumption for 2023-2025.
-# GRADUAL follows the observed annual Australian path, not a constant CAGR.
+# GRADUAL follows the selected annual Australian path, not a constant CAGR.
 #
 # Main assumptions:
 #   - All scenarios begin at each Canadian airport's actual 2015 real
@@ -52,7 +53,6 @@
 #   counterfactual_annual.csv, counterfactual_summary.csv,
 #   ebitda_annual_2023_2025.csv, airport_counterfactual.xlsx.
 # Plot creation belongs to airport_counterfactual_plots.R.
-# Notes are embedded below so there is no external notes file to maintain.
 
 library(tidyverse)
 library(here)
@@ -61,6 +61,14 @@ library(here)
 start_year <- 2015L
 end_year <- 2025L
 years <- start_year:end_year
+# PRIMARY REPORTING: 'interpolated' suppresses abnormal AU 2020-22 yield
+# observations by interpolating each airport's 2019 and 2023 REAL index.
+# 'observed' exactly restores the original V18 GRADUAL trajectory.
+# No Canadian actual revenue, traffic, or historical scenario is changed.
+gradual_mode <- 'interpolated'
+if (!gradual_mode %in% c('interpolated', 'observed')) {
+  stop('gradual_mode must be interpolated or observed.')
+}
 can_airports <- c('YYC', 'YUL', 'YVR', 'YYZ')
 aus_airports <- c('BNE', 'MEL', 'PER', 'SYD')
 
@@ -81,7 +89,9 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 scenario_info <- tribble(
   ~scenario,          ~label,                              ~type,
-  'GRADUAL',          'Australian gradual growth',           'recent_2015_2025',
+  'GRADUAL',          if (gradual_mode == 'interpolated')
+    'Australian growth (pandemic-adjusted)' else
+    'Australian growth (observed)',                        'recent_2015_2025',
   'CAP_THEN_SHOCK',   'Australian cap period, then shock',   'historical_1998_2007',
   'IMMEDIATE_SHOCK',  'Australian immediate post-cap shock','historical_2001_2007'
 )
@@ -133,11 +143,51 @@ if (any(can$passengers <= 0) || any(can$actual_pp_cad_2025 <= 0) ||
   stop('Revenue, passengers or 2015 indices do not reconcile.')
 }
 
-recent_path <- aus |>
+# Reconstruct BOTH trajectories from the same airport-specific actual indices.
+# Year labels are Australian fiscal-year END years (not Canadian calendar years).
+aus_index_audit <- aus |>
+  group_by(airport) |>
+  mutate(
+    observed_index = index,
+    index_2019 = index[year == 2019L],
+    index_2023 = index[year == 2023L],
+    adjusted_index = if_else(
+      year %in% 2020:2022,
+      index_2019 + (year - 2019L) / 4 * (index_2023 - index_2019),
+      index
+    )
+  ) |>
+  ungroup() |>
+  select(airport, year, observed_index, adjusted_index) |>
+  mutate(index_change = adjusted_index - observed_index)
+
+if (nrow(aus_index_audit) != 4L * length(years) ||
+    anyNA(aus_index_audit) ||
+    any(!is.finite(aus_index_audit$adjusted_index)) ||
+    any(aus_index_audit$adjusted_index <= 0) ||
+    any(abs(aus_index_audit$index_change[
+      !aus_index_audit$year %in% 2020:2022]) > 1e-10)) {
+  stop('Australian pandemic-index adjustment failed checks.')
+}
+
+recent_path_variants <- aus_index_audit |>
   group_by(year) |>
-  summarise(growth_multiple_2015 = mean(index), .groups = 'drop') |>
-  mutate(scenario = 'GRADUAL', australian_year = year,
-         source_status = 'observed')
+  summarise(
+    observed_multiple = mean(observed_index),
+    adjusted_multiple = mean(adjusted_index),
+    .groups = 'drop'
+  )
+
+recent_path <- recent_path_variants |>
+  transmute(
+    year,
+    growth_multiple_2015 = if (gradual_mode == 'interpolated')
+      adjusted_multiple else observed_multiple,
+    scenario = 'GRADUAL', australian_year = year,
+    source_status = if_else(
+      gradual_mode == 'interpolated' & year %in% 2020:2022,
+      'interpolated_2019_2023', 'observed')
+  )
 
 # OBSERVED CANADA–AUSTRALIA GROWTH AND LEVEL COMPARISON ---------------------
 # Preserve actual annual revenue and revenue per passenger, alongside the
@@ -566,6 +616,17 @@ if (nrow(profit_revenue_check) != nrow(profitability_annual) ||
 }
 
 # OUTPUT -------------------------------------------------------------------
+# Preserve both inputs for transparency when switching primary reporting mode.
+readr::write_csv(aus_index_audit,
+                 file.path(out_dir, 'gradual_airport_index_audit.csv'))
+readr::write_csv(recent_path_variants,
+                 file.path(out_dir, 'gradual_observed_vs_interpolated.csv'))
+readr::write_csv(
+  tibble(gradual_mode = gradual_mode,
+         interpolation_years = '2020-2022',
+         anchor_years = '2019,2023',
+         note = 'Australian FY ending-year indices only; Canadian actuals unchanged'),
+  file.path(out_dir, 'gradual_reporting_mode.csv'))
 readr::write_csv(trajectories,
                  file.path(out_dir, 'scenario_growth_paths.csv'))
 readr::write_csv(actual_growth,
@@ -622,6 +683,11 @@ if (nrow(summary_excel) != nrow(summary) || anyNA(summary_excel)) {
 # recalculated by the counterfactual.
 notes_excel <- tibble(
   Note = c(
+    paste0('GRADUAL primary reporting mode: ', gradual_mode,
+           '. If interpolated, Australian FY2020-2022 airport-specific real ',
+           'revenue-per-passenger indices are linearly interpolated between ',
+           'observed 2019 and 2023 indices; Canadian observations and ',
+           'historical scenarios are unchanged.'),
     "Australia's competition monitor (ACCC) did a report this year (2026) on the determinants of airfares: https://www.accc.gov.au/system/files/accc-submission-productivity-commission-inquiry-into-the-determinants-into-regional-airfares.pdf",
     "They pointed to airport charges as a key factor and connect it to the monopoly power of the big AUS airports to raise their prices (page 24)",
     "It was found that real aero revenues per passenger grew by 38.3% on average from 2015 to 2025",
@@ -636,7 +702,8 @@ notes_excel <- tibble(
     "Three counterfactual scenarios",
     "1. Baseline: The calculated average real growth rate of the AUS big 4 was 38.4% from 2015 to 2025 (same as the ACCC). This can be the baseline scenario, a slow but steady increase over time, nothing extreme.",
     "2. Policy cap, then shock: Uses the growth path of AUS airports post-privitization (1997-2007), where prices were capped for 5 years (CPI-X), then suddenly shot up when the cap lifted, using average growth in the post-shock years. Results in about 58% revenue growth",
-    "3. No cap, sudden shock: There is no post-priv cap on price growth and the price shock is immediate, using average growth for the post-shock years. Results in about 80% revenue growth."
+    "3. No cap, sudden shock: There is no post-priv cap on price growth and the price shock is immediate, using average growth for the post-shock years. Results in about 80% revenue growth.",
+    "Note: the baseline scenario includes a pandemic induced anomaly in PP revenue (2020-2022), which has been removed to make a 'pandemic adjusted' growth path for that scenario. This only impacts the cumulative total, the level in 2025 isn't changed."
   )
 )
 
@@ -654,6 +721,8 @@ writexl::write_xlsx(
   ),
   file.path(out_dir, 'airport_counterfactual.xlsx')
 )
+
+source(here::here("r", "format_airport_counterfactual_excel.R"))
 
 print(summary |>
         filter(airport == 'BIG4') |>
