@@ -1024,6 +1024,14 @@ parse_accc_airports <- function(path, keep_raw = FALSE) {
 }
 
 # Main call and export ---------------------------------------------------------------------
+
+## Source provenance
+accc_source_url <- paste0(
+  "https://www.accc.gov.au/system/files/",
+  "accc-airport-monitoring-report-2024-25-supplementary-database.xlsx"
+)
+
+
 accc <- parse_accc_airports(
   here::here("data", "australia", "accc-airport-monitoring-report-2024-25-supplementary-database.xlsx")
 )
@@ -1109,10 +1117,13 @@ aus_passengers <- aero_fin |>
     airport, year,
     passengers = value * 1000,
     passengers_thousands = value,
-    source = "ACCC supplementary database"
+    source = "ACCC supplementary database",
+    source_url = accc_source_url,
+    source_sheet = paste0(airport, " total and aero")
   ) |>
   distinct(airport, year, .keep_all = TRUE) |>
   arrange(airport, year)
+
 
 readr::write_csv(
   aus_passengers,
@@ -1156,6 +1167,43 @@ rev_exp_prof_export <- bind_rows(aero_profit, parking_profit, landside_profit) |
     starts_with("other_")
   ) |>
   arrange(airport, year)
+
+
+# Financial source provenance -------------------------------------------
+
+financial_provenance <- rev_exp_prof_export |>
+  pivot_longer(
+    cols = -c(airport, year),
+    names_to = "variable",
+    values_to = "value"
+  ) |>
+  mutate(
+    source_url = accc_source_url,
+    source_sheet = case_when(
+      variable %in% c(
+        "parking_transport_revenue",
+        "other_revenue",
+        "other_expenses",
+        "other_profit"
+      ) ~ paste0(
+        airport, " total and aero; ",
+        airport, " Car park and Landside"
+      ),
+      str_starts(variable, "parking_") |
+        variable == "landside_revenue" ~
+        paste0(airport, " Car park and Landside"),
+      TRUE ~ paste0(airport, " total and aero")
+    )
+  ) |>
+  filter(!is.na(value)) |> 
+  select(airport, year, variable, value,
+         source_url, source_sheet) 
+
+readr::write_csv(
+  financial_provenance,
+  here("output", "accc_financial_provenance.csv")
+)
+
 
 # Per-unit measures and margins ---------------------------------------
 

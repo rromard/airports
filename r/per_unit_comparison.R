@@ -1054,3 +1054,161 @@ message('Australian CPI: ABS ', abs_id,
 message('Sydney: SCACH Jan–Dec 2023–2025 financing/net results; ACCC June FY operating results.')
 print(growth_summary |> arrange(country, airport), n = Inf)
 
+
+# COMPARISON SOURCE PROVENANCE ------------------------------------------
+# Source references are keyed by airport, year and comparison variable.
+# Annual values have one source URL; pooled values retain three annual URLs.
+
+# Canadian annual reports
+can_sources <- readr::read_csv(
+  can_recent_path, show_col_types = FALSE
+) |>
+  transmute(
+    airport = recode(
+      airport,
+      Pearson = 'YYZ', Calgary = 'YYC',
+      Montreal = 'YUL', Vancouver = 'YVR'
+    ),
+    year = as.integer(year),
+    can_url = source_url
+  ) |>
+  distinct()
+
+assert_unique(can_sources, c('airport', 'year'),
+              'Canadian source URLs')
+
+# ACCC supplementary financial data
+sup_sources <- readr::read_csv(
+  here('output', 'accc_financial_provenance.csv'),
+  show_col_types = FALSE
+) |>
+  transmute(
+    airport,
+    year = fy_end(year),
+    source_variable = variable,
+    sup_url = source_url,
+    sup_sheet = source_sheet
+  )
+
+assert_unique(
+  sup_sources, c('airport', 'year', 'source_variable'),
+  'ACCC supplementary provenance'
+)
+
+# Crosswalk: comparison labels to supplementary source variables.
+sup_map <- tribble(
+  ~variable,                    ~source_variable,
+  'total_revenue',              'total_revenue',
+  'total_aero',                 'aero_revenue',
+  'commercial_revenue',         'total_revenue',
+  'parking_transport_revenue',  'parking_transport_revenue'
+)
+
+sup_sources <- sup_sources |>
+  inner_join(sup_map, by = 'source_variable') |>
+  select(airport, year, variable, sup_url, sup_sheet)
+
+# ACCC regulatory accounts
+reg_sources <- reg_total |>
+  transmute(
+    airport, year,
+    reg_url = source_url,
+    reg_sheet = source_sheet
+  )
+
+assert_unique(reg_sources, c('airport', 'year'),
+              'ACCC regulatory provenance')
+
+# SCACH consolidated income statements (Sydney only)
+scach_sources <- scach |>
+  transmute(
+    year,
+    scach_url = source_url
+  )
+
+# Measures taken from SCACH rather than the ACCC regulatory accounts.
+scach_vars <- c(
+  'interest_financing_costs',
+  'profit_before_tax',
+  'accounting_income_tax_expense',
+  'net_income',
+  'net_profit_margin_pct'
+)
+
+# Build provenance for the complete annual comparison.
+provenance_annual <- comparison_annual_complete |>
+  filter(variable %in% keep_vars) |>
+  transmute(
+    country, airport, year, variable,
+    has_value = is.finite(value_absolute)
+  ) |>
+  left_join(can_sources, by = c('airport', 'year')) |>
+  left_join(sup_sources, by = c('airport', 'year', 'variable')) |>
+  left_join(reg_sources, by = c('airport', 'year')) |>
+  left_join(scach_sources, by = 'year') |>
+  mutate(
+    source_url = case_when(
+      country == 'Canada' ~ can_url,
+      country == 'Australia' &
+        airport == 'SYD' &
+        variable %in% scach_vars ~ scach_url,
+      country == 'Australia' &
+        variable %in% sup_map$variable ~ sup_url,
+      country == 'Australia' ~ reg_url
+    ),
+    source_sheet = case_when(
+      country == 'Australia' &
+        airport == 'SYD' &
+        variable %in% scach_vars ~
+        'SCACH consolidated financial statements',
+      country == 'Australia' &
+        variable %in% sup_map$variable ~ sup_sheet,
+      country == 'Australia' ~ reg_sheet,
+      TRUE ~ NA_character_
+    ),
+    # No link for an unavailable financial measure.
+    source_url = if_else(has_value, source_url, NA_character_),
+    source_sheet = if_else(has_value, source_sheet, NA_character_)
+  ) |>
+  select(country, airport, year, variable,
+         has_value, source_url, source_sheet) |>
+  arrange(country, airport, year, variable)
+
+assert_unique(
+  provenance_annual,
+  c('country', 'airport', 'year', 'variable'),
+  'Annual comparison provenance'
+)
+
+if (any(provenance_annual$has_value &
+        (is.na(provenance_annual$source_url) |
+         !startsWith(coalesce(provenance_annual$source_url, ''),
+                     'https://')))) {
+  stop('Missing source URL for a populated comparison measure.')
+}
+
+readr::write_csv(
+  provenance_annual |> select(-has_value),
+  file.path(out_dir, 'comparison_sources_annual_2023_2025.csv')
+)
+
+saveRDS(
+  list(
+    annual_all = annual_all,
+    cost_groups_annual = cost_groups_annual,
+    financial_amounts_annual = financial_amounts_annual,
+    comparison_annual_long = comparison_annual_long,
+    annual_margins = annual_margins,
+    comparison_pooled_long = comparison_pooled_long,
+    financial_source_annual = financial_source_annual,
+    pass_df = pass_df,
+    aus_pass = aus_pass,
+    can_cpi = can_cpi,
+    aus_cpi = aus_cpi,
+    passenger_pools = passenger_pools
+  ),
+  file.path(out_dir, 'financial_comparison_audit_2023_2025.rds')
+)
+
+
+

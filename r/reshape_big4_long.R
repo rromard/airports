@@ -17,8 +17,11 @@ if (!requireNamespace('readxl', quietly = TRUE) ||
   stop('Required packages: readxl, dplyr, stringr, purrr, tidyr, here.')
 }
 
+source_sheet <- 'Big 4 standard'
 xlsx_path <- here::here('output', 'Airport privatization CCPA sheet.xlsx')
-if (!file.exists(xlsx_path)) stop('Source workbook not found: ', xlsx_path)
+if (!source_sheet %in% readxl::excel_sheets(xlsx_path)) {
+  stop("Expected '", source_sheet, "' worksheet in: ", xlsx_path)
+}
 if (!'Big 4' %in% readxl::excel_sheets(xlsx_path)) {
   stop("Expected 'Big 4' worksheet in: ", xlsx_path)
 }
@@ -120,6 +123,52 @@ if (nrow(rev) != 12L || anyNA(rev) || any(abs(
   ) > 0.25)) {
   stop('Wide source does not reconcile: aero + commercial + gross AIF != total revenue.')
 }
+
+
+# SOURCE PROVENANCE ---------------------------------------------------------
+
+sources <- tibble::tribble(
+  ~airport, ~year, ~source_url,
+  
+  # Toronto Pearson
+  "Pearson", 2023L, "https://cdn.torontopearson.com/-/media/project/pearson/content/corporate/who-we-are/pdfs/annual-reports/gtaa-annual-report-2023",
+  "Pearson", 2024L, "https://cdn.torontopearson.com/-/media/project/pearson/content/corporate/who-we-are/pdfs/annual-reports/gtaa-annual-report-2024.pdf?hash=B505B43E4DB497BFCC9DD844AA9E0FCF&rev=e7b70e97c9df4e1582632d7f1e5019e1",
+  "Pearson", 2025L, "https://cdn.torontopearson.com/-/media/project/pearson/content/corporate/who-we-are/pdfs/annual-reports/2025-gtaa-annual-report-eng",
+  
+  # Calgary
+  "Calgary", 2023L, "https://www.yyc.com/portals/0/2023%20Financial%20Report%20-%20MD&A%20&%20FS%20combined.pdf",
+  "Calgary", 2024L, "https://www.yyc.com/Portals/0/CAA%20YE%202024%20Financial%20Report.pdf?ver=pjqOcGimCeX04Sc-_v9P7w%3D%3D",
+  "Calgary", 2025L, "https://www.yyc.com/Portals/0/Calgary%20Airports%202025%20Financial%20Report.pdf?ver=A36RuvSZ2YzYVAXqUYUuCA%3D%3D",
+  
+  # Montréal
+  "Montreal", 2023L, "https://www.admtl.com/sites/default/files/2024/ADM_Rapport-Annuel-2023_EN_VF.pdf",
+  "Montreal", 2024L, "https://www.admtl.com/file?v=8b031218-c657-4a41-8f75-5e0842cff6c7&mod=download",
+  "Montreal", 2025L, "https://www.admtl.com/file?v=9c647b5c-9d61-4752-8954-e8c47ddb3d94&mod=download",
+  
+  # Vancouver
+  "Vancouver", 2023L, "https://www.yvr.ca/-/media/files/2023-annual-reports/2023-12-31-yvraa-consolidated-financial-statements.pdf",
+  "Vancouver", 2024L, "https://www.yvr.ca/-/media/yvr/documents/2024-annual-sustainability-report/en/2024-12-31-yvraa-audited-consolidated-financial-statements.pdf",
+  "Vancouver", 2025L, "https://cm.yvr.ca/-/media/yvr/images/2025-annual-report/ilp-pdfs/english/yvr_2025_consolidated-financial-statements_en.pdf"
+)
+
+
+# Exactly one source link for each airport-year.
+if (anyDuplicated(sources[c('airport', 'year')])) {
+  stop('Duplicate Canadian airport-year source links.')
+}
+
+missing_sources <- long |>
+  dplyr::distinct(airport, year) |>
+  dplyr::anti_join(sources, by = c('airport', 'year'))
+
+if (nrow(missing_sources) > 0 ||
+    anyNA(sources$source_url) ||
+    any(!grepl('^https?://', sources$source_url))) {
+  stop('Incomplete or invalid Canadian source URLs.')
+}
+
+long <- long |>
+  dplyr::left_join(sources, by = c('airport', 'year'))
 
 # Write a standalone derived dataset; never rewrite the source workbook.
 # This is safe to rerun and avoids Excel comment/XML corruption.

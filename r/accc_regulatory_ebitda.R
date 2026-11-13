@@ -302,6 +302,18 @@ results <- input_files |>
   arrange(airport, year, factor(activity,
                                levels = c('total', 'aeronautical', 'non_aeronautical')))
 
+
+# Source provenance ----------------------------------------------------
+
+accc_regulatory_base_url <- "https://www.accc.gov.au/system/files/"
+
+results <- results |>
+  mutate(
+    source_url = paste0(accc_regulatory_base_url, source_file),
+    .after = source_sheet
+  )
+
+
 # Each source sheet must contribute one row for each of the three activities.
 stopifnot(nrow(results) == nrow(input_files) * 3L,
           !anyDuplicated(results[c('airport', 'fyear', 'activity')]))
@@ -315,7 +327,7 @@ write_csv(results, file.path(output_dir, 'accc_airport_ebitda_by_activity_2022_2
 # Values remain NOMINAL AUD millions; convert to 2025 CAD downstream.
 income_statement <- results |>
   filter(activity == 'total') |>
-  select(airport, fyear, year, source_file, source_sheet,
+  select(airport, fyear, year, source_file, source_sheet, source_url,
          revenue, expenditure, operating_profit, depreciation_land,
          depreciation_other, amortisation_intangibles,
          depreciation_amortisation, ebitda, ebitda_margin,
@@ -338,7 +350,7 @@ expense_vars <- c(
   'amortisation_intangibles'
 )
 expenses_long <- results |>
-  select(airport, fyear, year, activity, source_file, source_sheet,
+  select(airport, fyear, year, activity, source_file, source_sheet, source_url,
          all_of(expense_vars)) |>
   tidyr::pivot_longer(all_of(expense_vars), names_to = 'item',
                       values_to = 'value_aud_m') |>
@@ -352,8 +364,19 @@ write_csv(expenses_long,
           file.path(output_dir, 'accc_airport_expenditure_by_type_2022_2025.csv'))
 
 expense_groups <- expenses_long |>
-  group_by(airport, fyear, year, activity, category) |>
-  summarise(value_aud_m = if (all(is.na(value_aud_m))) NA_real_ else sum(value_aud_m, na.rm = TRUE), .groups = 'drop')
+  group_by(
+    airport, fyear, year, activity, category,
+    source_file, source_sheet, source_url
+  ) |>
+  summarise(
+    value_aud_m = if (all(is.na(value_aud_m))) {
+      NA_real_
+    } else {
+      sum(value_aud_m, na.rm = TRUE)
+    },
+    .groups = 'drop'
+  )
+
 write_csv(expense_groups,
           file.path(output_dir, 'accc_airport_expenditure_groups_2022_2025.csv'))
 print(results |> select(airport, fyear, activity, revenue, expenditure,
@@ -363,6 +386,27 @@ print(results |> select(airport, fyear, activity, revenue, expenditure,
                         ebit_reported, interest_expense, profit_before_tax,
                         income_tax_expense, net_profit_after_tax,
                         dividends_paid), n = Inf)
+
+
+# All exported records must have usable source URLs.
+stopifnot(
+  !anyNA(results$source_url),
+  all(startsWith(results$source_url, "https://")),
+  !anyNA(income_statement$source_url),
+  !anyNA(expense_groups$source_url)
+)
+
+# Revised Perth source is retained when the revised input exists.
+if (file.exists(revision_path)) {
+  stopifnot(
+    all(
+      results$source_file[
+        results$airport == 'PER' & results$fyear == '2023-24'
+      ] == perth_revision
+    )
+  )
+}
+
 
 # Check source availability: reported operating profit exists for all three
 # activities; reported EBIT exists for total and aeronautical only.
