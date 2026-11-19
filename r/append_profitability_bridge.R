@@ -1,13 +1,93 @@
 # Profitability bridge | Canada versus Australian EBITDA benchmarks
 # ---------------------------------------------------------------------
-# Run only from append_acquisition_audits.R, after the validated model has
-# been converted to 2025 CAD. Requires: wb, model, profitability_nine,
-# final_totals, out_dir, and original acquisition workbook formatting styles.
+# Run directly for rapid iteration:
+#   source(here::here('r', 'append_profitability_bridge.R'))
 #
-# This module adds a 20-row Excel presentation controlled by 3 selectors and
-# a 540-row formula calculation sheet. It also exports independent R results
-# for every financing scenario, objective, airport, period and benchmark mode.
-# No financing, tax or profitability-target solution is recomputed here.
+# Direct execution reads SAVED 2023-25 comparison CSVs and the saved
+# acquisition RDS (no financial model regeneration and no global objects).
+# It saves a standalone two-sheet workbook and three CSVs.
+#
+# When sourced by append_acquisition_audits.R with bridge_integrated_mode
+# set TRUE, the exact same calculation / worksheet code appends the two
+# worksheets to the already-open integrated workbook; saving remains the
+# responsibility of the integrated workbook builder.
+#
+# Both modes need tidyverse, here and openxlsx.
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(here)
+  library(openxlsx)
+})
+
+if (!exists('bridge_integrated_mode', inherits = FALSE)) {
+  bridge_integrated_mode <- FALSE
+}
+if (!is.logical(bridge_integrated_mode) ||
+    length(bridge_integrated_mode) != 1L ||
+    is.na(bridge_integrated_mode)) {
+  stop('bridge_integrated_mode must be TRUE or FALSE.', call. = FALSE)
+}
+
+if (!bridge_integrated_mode) {
+  out_dir <- here::here('output', 'airport_comparison')
+  annual_path <- file.path(out_dir,
+    'comparison_annual_absolute_2023_2025.csv')
+  pooled_path <- file.path(out_dir,
+    'comparison_pooled_absolute_2023_2025.csv')
+  needed <- c(annual_path, pooled_path,
+    here::here('output', 'airport_purchase_counterfactual',
+               'acquisition_workbook_sources.rds'))
+  missing <- needed[!file.exists(needed)]
+  if (length(missing)) {
+    stop('The standalone profitability bridge needs saved model inputs. ',
+         'Missing:\n', paste(missing, collapse = '\n'),
+         '\nRun the full financial/acquisition pipeline once to create ',
+         'these files, then rerun this script independently.',
+         call. = FALSE)
+  }
+  annual <- readr::read_csv(annual_path, show_col_types = FALSE)
+  pooled <- readr::read_csv(pooled_path, show_col_types = FALSE)
+  compare_vars <- c('country','airport','ebitda','total_revenue')
+  if (!all(c(compare_vars,'year') %in% names(annual)) ||
+      !all(compare_vars %in% names(pooled))) {
+    stop('Comparison CSVs lack required airport, revenue or EBITDA inputs.',
+         call. = FALSE)
+  }
+  final_totals <- dplyr::bind_rows(
+    annual |>
+      dplyr::mutate(period_type = 'annual', .before = year),
+    pooled |>
+      dplyr::mutate(period_type = 'pooled 2023-25',
+                    year = NA_integer_, .after = airport)
+  )
+  if (nrow(annual) != 24L || nrow(pooled) != 8L ||
+      anyDuplicated(annual[c('country','airport','year')]) ||
+      anyDuplicated(pooled[c('country','airport')])) {
+    stop('Unexpected or duplicated saved airport comparison records.',
+         call. = FALSE)
+  }
+
+  # Uses exactly the SAME 2025-CAD conversion, nine objectives, and
+  # independently summed BIG4 sensitivity rows as the integrated workbook.
+  sys.source(here::here('r', 'prepare_acquisition_bridge_inputs.R'),
+             envir = environment())
+  wb <- openxlsx::createWorkbook()
+  sys.source(here::here('r', 'acquisition_audit_format.R'),
+             envir = environment())
+} else {
+  required_objects <- c('wb', 'out_dir', 'final_totals', 'model',
+                        'profitability_nine', 'can_airports', 'pct_style',
+                        'num_style', 'per_pax_style',
+                        'head_acquisition', 'head_earnings',
+                        'head_financing', 'head_profit', 'head_revenue')
+  missing_objects <- required_objects[!vapply(required_objects,
+    exists, logical(1), inherits = FALSE)]
+  if (length(missing_objects)) {
+    stop('Integrated bridge is missing prepared objects: ',
+         paste(missing_objects, collapse = ', '), call. = FALSE)
+  }
+}
 
 # EDIT HERE when preparing alternative Datawrapper / chart-ready datasets.
 bridge_chart_metrics <- c(
@@ -31,13 +111,13 @@ dir.create(bridge_output_dir, showWarnings = FALSE, recursive = TRUE)
 stopifnot(!any(c(bridge_sheet, bridge_calc_sheet) %in% names(wb)))
 
 required_compare <- c('country', 'airport', 'year', 'period_type',
-                      'ebitda', 'ebitda_ebit_revenue_basis')
+                      'ebitda', 'total_revenue')
 if (!all(required_compare %in% names(final_totals))) {
   stop('Comparison workbook lacks the matched EBITDA/revenue benchmark fields.',
        call. = FALSE)
 }
 # All financial amounts in final_totals have already been expressed in 2025
-# CAD. Use the actual EBITDA-matched operating revenue denominator, not
+# CAD. Use the actual EBITDA-ACCC total operating revenue, not
 # SCACH's separate Sydney net-profit revenue basis.
 bridge_australia <- final_totals |>
   filter(country == 'Australia') |>
@@ -47,7 +127,7 @@ bridge_australia <- final_totals |>
   summarise(
     n_airports = n_distinct(airport),
     ebitda_m = sum(ebitda),
-    matched_revenue_m = sum(ebitda_ebit_revenue_basis),
+    matched_revenue_m = sum(total_revenue),
     .groups = 'drop'
   ) |>
   mutate(benchmark_margin = ebitda_m / matched_revenue_m) |>
@@ -147,7 +227,7 @@ canadian_check <- bridge_inputs |>
     mutate(year_label = if_else(is.na(year), '2023-25',
                                 as.character(year))) |>
     select(airport, year_label, reported_comparison_ebitda_m = ebitda,
-           reported_comparison_revenue_m = ebitda_ebit_revenue_basis),
+           reported_comparison_revenue_m = total_revenue),
     by = c('airport', 'year_label'))
 if (nrow(canadian_check) != 16L ||
     anyNA(canadian_check[c('reported_comparison_ebitda_m',
@@ -422,9 +502,9 @@ openxlsx::writeData(wb, bridge_sheet, bridge_options,
 openxlsx::writeData(wb, bridge_sheet, bridge_modes,
   startRow = 3, startCol = 29, colNames = FALSE)
 for (args in list(
-  list(row = 3L, range = "'Profitability bridge'!$AA$3:$AA$5"),
-  list(row = 4L, range = "'Profitability bridge'!$AB$3:$AB$11"),
-  list(row = 5L, range = "'Profitability bridge'!$AC$3:$AC$4")
+  list(row = 3L, range = '$AA$3:$AA$5'),
+  list(row = 4L, range = '$AB$3:$AB$11'),
+  list(row = 5L, range = '$AC$3:$AC$4')
 )) {
   openxlsx::dataValidation(wb, bridge_sheet, cols = 2, rows = args$row,
     type = 'list', value = args$range)
@@ -535,3 +615,13 @@ message('Prepared profitability bridge: 20 selectable Excel rows; ',
         nrow(calc_data), ' formula audit cases; ',
         nrow(bridge_export), ' independent R scenario / benchmark rows; ',
         nrow(bridge_australia), ' Australian benchmark observations.')
+
+# Save only the small standalone workbook when executed directly.
+# The integrated builder saves its existing 17-sheet workbook separately.
+if (!bridge_integrated_mode) {
+  standalone_path <- file.path(bridge_output_dir,
+    'airport_profitability_bridge_standalone_2023_2025.xlsx')
+  openxlsx::saveWorkbook(wb, standalone_path, overwrite = TRUE)
+  message('Saved standalone profitability workbook: ', standalone_path)
+  message('CSV exports: ', bridge_output_dir)
+}
