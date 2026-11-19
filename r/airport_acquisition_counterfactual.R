@@ -2649,5 +2649,8 @@ message('Saved v22: ',nrow(model),' acquisition rows and ',
 # rather than reverse-engineering values from a previously saved workbook.
 # Currency conversion for the integrated workbook takes place downstream.
 saveRDS(list(model = model, profitability_model = profitability_model,
-             sensitivity_base = sensitivity_base),
+             sensitivity_base = sensitivity_base,
+             acquisition_audit_cols = acquisition_audit_cols,
+             acquisition_source_cols = acquisition_source_cols,
+             acquisition_formula_cols = acquisition_formula_cols),
         file.path(out_dir, 'acquisition_workbook_sources.rds'))
