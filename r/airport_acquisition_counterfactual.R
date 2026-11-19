@@ -1,48 +1,156 @@
-# Canadian Big Four airports: illustrative private-acquisition counterfactual
-# 2023–2025 | One independent acquisition thought experiment per airport-year
-# v22: retain three paired financing cases, export per-passenger comparison inputs, and save two ggplot2 charts.
+# =============================================================================
+# CANADIAN AIRPORT PRIVATIZATION: ACQUISITION AND PROFITABILITY COUNTERFACTUAL
+# =============================================================================
 #
-# Run from existing R project root:
-#   source(here::here('r', 'airport_acquisition_counterfactual_v22.R'))
-# Uses the upstream financial comparison audit; no Excel input.
-# Requires: tidyverse, readxl, janitor, here, openxlsx (for audit workbook).
+# PURPOSE
 #
-# INPUT MANIFEST
-# 1. output/airport_comparison/financial_comparison_audit_2023_2025.rds
-#    Nominal Canadian finances, ground rent, passengers and CPI factors.
-# 2. data/canada/airport_acquisition_inputs_2023_2025.xlsx
-#    First data sheet, skip=3: airport, year, gross_debt_m, cash_m,
-#      capex_cash_m (cash capex may be missing).
+# Estimate the financial implications of a hypothetical private acquisition
+# of Canada's four largest airports: Calgary (YYC), Montreal (YUL),
+# Vancouver (YVR), and Toronto Pearson (YYZ).
 #
-# OUTPUT MANIFEST (all under output/airport_purchase_counterfactual/v22/)
-# 1. airport_acquisition_counterfactual_audit.xlsx: central results, three-case
-#    comparison, annual/pooled formula audits, notes. Optional operating appendix.
-# 2. acquisition_scenarios.csv: compact all-scenario acquisition/recovery panel.
-# 3. profitability_scenarios.csv: all-scenario, long-format six-threshold profitability panel.
-# 4. central_acquisition_financing.csv: presentation-ready acquisition table.
-# 5. central_profitability_requirements.csv: presentation-ready six-threshold profitability table.
-# 6. scenario_comparison.csv: low-cost, central, high-cost case comparison.
-# 7. scenario_assumptions.csv: three named financing input packages.
-# 8. acquisition_per_passenger_annual.csv: 2023–25 2025-CAD values.
-# 9. acquisition_per_passenger_pooled.csv: pooled 2023–25 2025-CAD values.
-# 10–11. Two ggplot2 2025 scenario charts, PNG format.
-# 12–13. Two finished acquisition presentation CSVs (total, per-passenger).
-# The standalone operating-sensitivity worksheet from v21 is optional (off).
+# The model examines two related questions:
 #
-# IMPORTANT: This is a STATIC, ACQUISITION-FINANCING SCREEN, not an equity IRR,
-# an actual acquisition offer, a forecast of airfares or a proof that these
-# capital structures could be financed. No assumed post-sale operating gains apart from abolished federal ground rent.
-# Valuation uses EBITDA AFTER adding back eliminated federal ground rent.
-# Annual 2023, 2024 and 2025 are independent snapshots. Pooled results
-# combine three-year cash flows using an annualized acquisition valuation.
-# All financial inputs are nominal CAD millions in their observed year.
-# Each airport's existing borrowings are RETAINED at observed financing costs.
+# 1. How much would a private purchaser need to borrow, and what additional
+#    financing costs would arise from acquiring each airport?
 #
-# Why a small supplement? The upstream comparison audit has EBITDA, rent, revenue,
-# passengers and NET financing expense, but not gross debt, cash or capex.
-# Populate the 12-row companion Excel file from the operator-report process.
-# Do not mix net and gross interest: source financing cost is NET, and the
-# acquisition interest is incremental. Cash-flow analysis is approximate.
+# 2. How much additional revenue would the airport need to generate to
+#    cover those costs, restore its historical profitability, or achieve
+#    net profit margins comparable to those observed at private airports?
+#
+# The analysis is intended to illustrate the financial pressures that
+# privatization could introduce, particularly the potential tension
+# between acquisition financing, private profitability, and continued
+# investment in airport infrastructure.
+#
+#
+# METHODOLOGY
+#
+# The model uses observed financial results for 2023, 2024, and 2025.
+# Each airport-year is treated as an independent acquisition scenario.
+# Three-year pooled results are also calculated.
+#
+# Three alternative acquisition packages are examined:
+#   - Low-cost:  20x EBITDA valuation, 50% new debt, 4.5% interest.
+#   - Central:   22.5x EBITDA valuation, 60% new debt, 5.5% interest.
+#   - High-cost: 25x EBITDA valuation, 70% new debt, 6.5% interest.
+#
+# These are illustrative assumptions, not estimated transaction terms.
+#
+# The acquisition model:
+#   - Estimates the airport's sale value using EBITDA adjusted for the
+#     elimination of federal ground rent.
+#   - Accounts for existing airport debt and cash when estimating the
+#     amount payable to acquire the airport.
+#   - Estimates new acquisition borrowing and associated interest costs.
+#   - Retains existing airport debt and its observed financing costs.
+#   - Calculates post-acquisition profitability, including estimated
+#     corporate income taxes.
+#
+# The profitability model then estimates the additional revenue needed to:
+#   - Break even on a pre-tax basis.
+#   - Restore historical pre-tax profitability.
+#   - Achieve total after-tax net profit margins of 15%, 20%, 25%, or 30%.
+#
+# These are six independent objectives, not cumulative requirements.
+# Additional revenue is assumed to contribute to pre-tax profit at a
+# specified rate (100% by default). The model does not determine which
+# airport charges or commercial activities would generate that revenue.
+#
+# Results are calculated separately for each airport. BIG4 aggregates
+# combine the individual calculations, including airport-specific taxes
+# and revenue requirements, rather than modelling a single purchaser
+# or taxpayer for all four airports.
+#
+#
+# INPUTS
+#
+# 1. output/airport_comparison/
+#      financial_comparison_audit_2023_2025.rds
+#    Observed Canadian airport revenue, EBITDA, net income, financing
+#    costs, federal ground rent, passenger volumes, and CPI factors.
+#
+# 2. data/canada/
+#      airport_acquisition_inputs_2023_2025.xlsx
+#    Supplemental gross debt, unrestricted cash, and capital expenditure
+#    data for the four airports, 2023–2025.
+#
+#
+# OUTPUTS
+#
+# All files are saved under:
+#   output/airport_purchase_counterfactual/
+#
+# Main workbook:
+#   airport_acquisition_counterfactual_audit.xlsx
+#     Acquisition and profitability results, financing comparisons,
+#     calculation audits, methodology notes, and sensitivity analysis.
+#
+# Complete model datasets:
+#   acquisition_scenarios.csv
+#   profitability_scenarios.csv
+#
+# Central-scenario presentation tables:
+#   central_acquisition_financing.csv
+#   central_profitability_requirements.csv
+#
+# Financing assumptions and scenario comparisons:
+#   scenario_assumptions.csv
+#   scenario_comparison.csv
+#
+# Per-passenger comparison datasets:
+#   acquisition_per_passenger_annual.csv
+#   acquisition_per_passenger_pooled.csv
+#
+# Additional presentation tables:
+#   acquisition_presentation_amounts.csv
+#   acquisition_presentation_per_passenger.csv
+#
+# Figures:
+#   chart_net_financing_pressure_2025.png
+#   chart_revenue_restore_2025.png
+#
+#
+# INTERPRETATION AND LIMITATIONS
+#
+# This is a static financial counterfactual, not a forecast of airport
+# privatization outcomes, a proposed acquisition price, or an assessment
+# of whether the assumed financing arrangements would be available.
+#
+# The model assumes that federal ground rent is eliminated following
+# privatization, but does not assume improvements in operating efficiency.
+#
+# Additional acquisition debt creates new financing costs. Existing
+# airport debt and its financing costs are retained. The model does not
+# include acquisition fees, principal repayments, refinancing, or changes
+# in depreciation and amortization.
+#
+# Corporate income taxes are estimated using statutory rates applied to
+# positive accounting pre-tax income. Actual taxable income and tax
+# liabilities may differ.
+#
+# Revenue requirements are not predictions of airport fees, passenger
+# charges, traffic growth, or commercial revenue. They do not account
+# for demand responses or changes in operating costs unless explicitly
+# introduced through the revenue-to-profit contribution assumption.
+#
+# Capital expenditures are included in descriptive financing-pressure
+# measures but are not deducted as expenses in the profitability model.
+# The analysis therefore does not constitute a complete cash-flow model
+# or establish the funds available for future infrastructure investment.
+#
+# Annual financial observations are nominal CAD. Pooled financial flows
+# are adjusted to 2025 CAD, with acquisition valuations based on
+# annualized earnings. Per-passenger comparison outputs use 2025 CAD.
+#
+#
+# EXECUTION
+#
+# Run from the project root:
+#   source(here::here('r', 'airport_acquisition_counterfactual.R'))
+#
+# Required packages: tidyverse, readxl, here, openxlsx.
+#
+# =============================================================================
 
 suppressPackageStartupMessages({
   library(tidyverse)
@@ -291,12 +399,10 @@ model <- tidyr::crossing(inputs_all, scenarios) |>
     # Annualized rent adjusted EBITDA, so calculations can also be applied to the pooled
     valuation_ebitda_m = rent_adjusted_ebitda_m / years_in_period,
 
-    # Sale value is calculated as a multiple of rent-adjusted EBITDA
-    # It refers to the total value of the transaction, including existing debts
+    # Estimated enterprise value, including existing net debt
     estimated_sale_value_m = valuation_ebitda_m * purchase_multiple,
 
-    # Equity consideration to acquire the operator, net of existing debt and cash.
-    # Existing debt is assumed, not repaid. This is not a purchase of physical assets.
+    # Equity purchase price after deducting existing debt and adding cash
     equity_purchase_consideration_m = estimated_sale_value_m - gross_debt_m + cash_m,
 
     # Check for invalid purchase prices
@@ -309,7 +415,7 @@ model <- tidyr::crossing(inputs_all, scenarios) |>
     # Purchase amount funded by new equity, residual of the debt funded share
     buyer_equity_contribution_m = equity_purchase_consideration_m - new_acquisition_debt_m,
 
-    # Total gross debts of the purchaser after airport acquisition
+    # Total gross airport related debts of the purchaser after airport acquisition
     total_gross_debt_m = gross_debt_m + new_acquisition_debt_m,
 
     # Ratio of total gross debts after purchase to the sale value
@@ -332,7 +438,7 @@ model <- tidyr::crossing(inputs_all, scenarios) |>
     # Observed EBTDA margin
     observed_ebtda_margin_pct = observed_ebtda_m / revenue_m,
 
-    # Rent adjusted EBTDA profit margin (expressed as a dollar amount here)
+    # EBTDA after eliminating federal ground rent
     rent_adjusted_ebtda_m = rent_adjusted_ebitda_m - net_financing_cost_m,
 
     # EBTDA after the added interest costs of the airport purchase
@@ -383,7 +489,7 @@ model <- tidyr::crossing(inputs_all, scenarios) |>
                                    incremental_revenue_to_profit,
 
     # Step 3: TOTAL after-tax net-margin targets of 15%, 20%, 25%, and 30%.
-    # Unlike the old +15pp/+20pp targets, the denominator is R + extra revenue.
+    # The net margin denominator is current total revenue + extra revenue.
     # For each target m: [(P + c*x)*(1-t)] / (R+x) = m, where
     #   P = purchase-adjusted pre-tax earnings, R = observed revenue,
     #   c = incremental-revenue-to-profit contribution, t = statutory tax rate,
@@ -391,27 +497,78 @@ model <- tidyr::crossing(inputs_all, scenarios) |>
     #   profit, so (1-t) applies at the target. A zero lift is permissible if
     #   the operator already exceeds the net margin target.
     # 15% after-tax net margin on revenue AFTER the modeled uplift.
+    #
+    # Incremental revenue-to-profit contribution:
+    # Additional revenue may also increase operating costs, so not every
+    # additional dollar necessarily translates into pre-tax profit.
+    # This parameter specifies the share of additional revenue retained
+    # as pre-tax profit. The default of 1.0 assumes a 100% contribution,
+    # meaning no additional operating costs.
+    
     target_net_margin_15pct = private_net_margin_targets[[1]],
+    
+    # Additional revenue required to achieve a 15% after-tax net profit margin.
+    #
+    # Numerator: The target profit margin multiplied by existing revenue,
+    # minus the airport's estimated after-tax profit following acquisition.
+    # This is the amount of additional profit needed to reach the target
+    # if the airport's total revenue remained unchanged.
+    #
+    # Denominator: The share of each additional revenue dollar retained
+    # as profit after corporate income tax, minus the target profit margin.
+    # This is the amount by which each new revenue dollar reduces the
+    # profit shortfall, accounting for the fact that additional revenue
+    # also increases the total revenue on which the margin is calculated.
+    #
+    # Dividing the profit shortfall by the effective contribution of each
+    # additional revenue dollar gives the required revenue increase.
+    # The zero floor applies if the target is already achieved.
     required_revenue_net_15pct_m = pmax(0,
       (target_net_margin_15pct * revenue_m -
         (1 - statutory_tax_rate) * purchase_adjusted_pre_tax_income_m) /
       ((1 - statutory_tax_rate) * incremental_revenue_to_profit -
          target_net_margin_15pct)),
+    
+    # Adjustment to profit requirements using incremental revenue parameter
     required_profit_net_15pct_m = required_revenue_net_15pct_m * incremental_revenue_to_profit,
+    
+    # Amount needed to hit target: total revenue + required for profit threshold
     counterfactual_revenue_net_15pct_m = revenue_m + required_revenue_net_15pct_m,
+    
+    # Calculate the pre-tax income required to achieve the target net margin.
+    # First, multiply counterfactual revenue by the target margin to get
+    # the desired after-tax profit. Then divide by the share of pre-tax
+    # income remaining after corporate taxes to obtain the pre-tax amount.
     target_pre_tax_income_net_15pct_m =
       target_net_margin_15pct * counterfactual_revenue_net_15pct_m /
         (1 - statutory_tax_rate),
+    
+    # New counter factual pre-tax income at the specified after-tax profit threshold
     counterfactual_pre_tax_income_net_15pct_m =
       purchase_adjusted_pre_tax_income_m + required_profit_net_15pct_m,
+    
+    # Estimate corporate income taxes on the airport's counterfactual
+    # pre-tax profit. Taxes are calculated at the statutory rate, with
+    # zero tax payable if the airport is operating at a loss.
     estimated_tax_net_15pct_m =
       pmax(0, counterfactual_pre_tax_income_net_15pct_m) * statutory_tax_rate,
-    # Additional modeled corporation tax compared with the post-acquisition
-    # starting point (not a claim about actual federal/provincial receipts).
+    
+    # Calculate the change in corporate income taxes between the
+    # post-acquisition starting position and the 15% profit scenario.
+    # This measures the additional tax liability associated with
+    # increasing revenue and profit to meet the target.
     incremental_tax_net_15pct_m =
       estimated_tax_net_15pct_m - estimated_tax_purchase_adjusted_m,
+    
+    # Calculate net income by subtracting estimated corporate income
+    # taxes from the counterfactual pre-tax profit.
     counterfactual_after_tax_income_net_15pct_m =
       counterfactual_pre_tax_income_net_15pct_m - estimated_tax_net_15pct_m,
+    
+    # Divide after-tax profit by counterfactual total revenue to
+    # calculate the resulting net profit margin. This should equal
+    # the 15% target, subject to rounding, unless the airport already
+    # exceeded the target before any additional revenue was required.
     counterfactual_net_margin_net_15pct_pct =
       counterfactual_after_tax_income_net_15pct_m / counterfactual_revenue_net_15pct_m,
 
@@ -539,49 +696,92 @@ big4_profit_targets <- model |>
   group_by(scenario_id, period, year_label) |>
   summarise(across(all_of(profit_aggregate_cols), sum), .groups = 'drop') |>
   mutate(airport = 'BIG4')
+
+# ---- FINAL ACQUISITION AND PROFITABILITY RESULTS --------------------------
+#
+# Assemble the final results for each airport, financing scenario, and
+# observation period (annual or pooled).
+#
+# The BIG4 aggregate combines the results of four independent airport
+# acquisitions. Each airport has its own purchase price, financing costs,
+# corporate tax rate, and profitability requirements. The BIG4 results
+# therefore sum the individual airport calculations rather than applying
+# a single set of assumptions to a hypothetical combined operator.
+#
+# Calculate the additional revenue required to break even, restore
+# historical profitability, or achieve after-tax net profit margins of
+# 15%, 20%, 25%, and 30%. Express these requirements both as increases
+# relative to existing revenue and as additional dollars per passenger.
+#
+# Finally, calculate indicators of whether acquisition financing costs
+# and continued capital investment could be supported by the airport's
+# existing earnings.
+
 model <- model |>
   rows_update(big4_profit_targets,
               by = c('scenario_id', 'period', 'year_label', 'airport')) |>
   mutate(
+    # Recalculate the post-acquisition net margin after corporate taxes.
     purchase_adjusted_after_tax_margin_pct =
       purchase_adjusted_after_tax_income_m / revenue_m,
+    
+    # Express the revenue needed to break even or restore historical
+    # profitability as a share of existing revenue.
     required_uplift_break_even_pct = required_revenue_break_even_m / revenue_m,
     required_uplift_restore_pct = required_revenue_restore_m / revenue_m,
+    
+    # Convert required additional revenue into dollars per passenger.
     required_revenue_break_even_per_pax_cad =
       required_revenue_break_even_m * 1e6 / passengers,
     required_revenue_restore_per_pax_cad =
       required_revenue_restore_m * 1e6 / passengers,
-    # BIG4 margin divides SUMMED airport after-tax income by SUMMED revenue.
+    
+    # 15% net margin: calculate the achieved margin, required revenue
+    # increase relative to existing revenue, and increase per passenger.
+    # BIG4 margins use summed airport profits and revenues.
     counterfactual_net_margin_net_15pct_pct =
       counterfactual_after_tax_income_net_15pct_m / counterfactual_revenue_net_15pct_m,
     required_uplift_net_15pct_pct = required_revenue_net_15pct_m / revenue_m,
     required_revenue_net_15pct_per_pax_cad =
       required_revenue_net_15pct_m * 1e6 / passengers,
-    # BIG4 margin divides SUMMED airport after-tax income by SUMMED revenue.
+    
+    # 20% net margin: same calculations.
     counterfactual_net_margin_net_20pct_pct =
       counterfactual_after_tax_income_net_20pct_m / counterfactual_revenue_net_20pct_m,
     required_uplift_net_20pct_pct = required_revenue_net_20pct_m / revenue_m,
     required_revenue_net_20pct_per_pax_cad =
       required_revenue_net_20pct_m * 1e6 / passengers,
-    # BIG4 margin divides SUMMED airport after-tax income by SUMMED revenue.
+    
+    # 25% net margin: same calculations.
     counterfactual_net_margin_net_25pct_pct =
       counterfactual_after_tax_income_net_25pct_m / counterfactual_revenue_net_25pct_m,
     required_uplift_net_25pct_pct = required_revenue_net_25pct_m / revenue_m,
     required_revenue_net_25pct_per_pax_cad =
       required_revenue_net_25pct_m * 1e6 / passengers,
-    # BIG4 margin divides SUMMED airport after-tax income by SUMMED revenue.
+    
+    # 30% net margin: same calculations.
     counterfactual_net_margin_net_30pct_pct =
       counterfactual_after_tax_income_net_30pct_m / counterfactual_revenue_net_30pct_m,
     required_uplift_net_30pct_pct = required_revenue_net_30pct_m / revenue_m,
     required_revenue_net_30pct_per_pax_cad =
       required_revenue_net_30pct_m * 1e6 / passengers,
+    
+    # Approximate cash remaining after financing costs and capital spending.
+    # Uses EBTDA, so depreciation and amortization are not deducted.
     cash_after_net_financing_capex_proxy_m =
       purchase_adjusted_ebtda_m - capex_cash_m,
+    
+    # Flag scenarios where combined financing costs equal or exceed
+    # rent-adjusted EBITDA.
     interest_more_than_ebitda =
       combined_net_financing_cost_proxy_m >= rent_adjusted_ebitda_m,
+    
+    # Flag scenarios where financing costs plus capital expenditures
+    # exceed rent-adjusted EBITDA.
     investment_plus_interest_exceeds_ebitda =
       combined_net_financing_cost_proxy_m + capex_cash_m > rent_adjusted_ebitda_m
   ) |>
+  # Order individual airports first, followed by the BIG4 aggregate.
   mutate(airport = factor(airport, levels = c(can_airports, 'BIG4'))) |>
   arrange(scenario_id, period, year_label, airport) |>
   mutate(airport = as.character(airport))
@@ -616,6 +816,7 @@ stopifnot(all(abs(model$purchase_adjusted_pre_tax_income_m -
     (model$net_income_m + model$ground_rent_m - model$additional_acquisition_interest_m)) < 1e-8))
 stopifnot(all(model$required_profit_restore_m + 1e-8 >=
               model$required_profit_break_even_m))
+
 # At the target, additional revenues increase the denominator of the margin.
 # Independently recheck the final after-tax ratio and nonnegative cash uplift.
 for (p in c(15,20,25,30)) {
@@ -639,6 +840,7 @@ for (p in c(15,20,25,30)) {
   active <- individual & amt > 1e-8
   stopifnot(all(abs(cf_margin[active] - p / 100) < 1e-9))
 }
+
 # Tax must reconcile against the separately taxed acquisition starting point.
 stopifnot(all(abs(model$purchase_adjusted_after_tax_income_m -
                    (model$purchase_adjusted_pre_tax_income_m -
@@ -662,11 +864,21 @@ for (nm in profit_aggregate_cols) {
   stopifnot(all(abs(check$airport_sum - check$big4) < 1e-8))
 }
 
-# ---- 7. TWO RESEARCH MODELS AND CONSOLIDATED CSV EXPORTS ------------------
-# Keep the already-validated v16 acquisition model NUMERICALLY UNCHANGED.
-# Present private-profit benchmarks in LONG format, with one row per
-# airport / annual-or-pooled period / financing scenario / net-margin target.
-# This removes the four repeated wide blocks from subsequent audit tables.
+# ---- 7. PREPARE ACQUISITION AND PROFITABILITY RESULTS ---------------------
+#
+# Organize the acquisition and profitability calculations into consistent
+# tables for presentation, validation, and export.
+#
+# Select the central financing scenario, identify source and calculated
+# acquisition variables, and reshape the six profitability thresholds
+# into a common long-format panel.
+#
+# Add intermediate profitability measures to make the revenue requirements
+# easier to interpret and verify. Check that the reshaped results reproduce
+# the original calculations and that BIG4 totals equal the sum of the
+# independently modelled airports.
+#
+# Export the complete acquisition and profitability scenario datasets.
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
 central_scenario <- function(d) {
@@ -699,15 +911,35 @@ acquisition_formula_cols <- setdiff(acquisition_audit_cols,
     'purchase_multiple','acquisition_debt_share','acquisition_interest_rate',
     'years_in_period','cpi_factor',acquisition_source_cols))
 
-# The six objectives are INDEPENDENT thresholds from the same post-acquisition
-# starting position. They are displayed in logical order, not added together:
-#   1. break even (fixed pre-tax profit target of zero);
-#   2. restore observed pre-tax profit (floored at zero for loss years);
-#   3-6. achieve TOTAL after-tax margins of 15/20/25/30% on expanded revenue.
-# Both forms use the same visible calculation chain. For fixed targets, each
-# extra dollar closes c dollars of the gap. For net-margin targets, it closes
-# only c - m/(1-t), because new revenue ALSO increases target profit.
-# The original Section 5 calculations remain untouched.
+# ---- ORGANIZE PROFITABILITY THRESHOLDS INTO A COMMON PANEL ---------------
+#
+# The acquisition model calculates six alternative profitability objectives
+# for each airport, year, and financing scenario:
+#   1. Break even: eliminate any post-acquisition pre-tax loss.
+#   2. Restore historical profit: recover the airport's observed pre-tax
+#      profit, or break even if the airport originally reported a loss.
+#   3-6. Achieve after-tax net profit margins of 15%, 20%, 25%, or 30%.
+#
+# Each objective is calculated independently from the same post-acquisition
+# starting position. They represent alternative revenue requirements,
+# not successive increases that must be added together.
+#
+# The following code takes the results calculated in Section 5 and
+# reorganizes them into a common format, with one row per profitability
+# objective, airport, period, and financing scenario.
+#
+# It also adds intermediate measures showing the initial profit shortfall
+# and how much each additional dollar of revenue contributes toward
+# closing that shortfall. These make the calculations easier to inspect
+# and compare across the six objectives.
+
+# For fixed pre-tax targets, each additional revenue dollar closes the
+# profit shortfall by the assumed pre-tax contribution rate (c).
+#
+# For after-tax margin targets, the effective contribution is smaller:
+# c - m/(1-t), where m is the target net margin and t is the tax rate.
+# This accounts for the additional profit needed to maintain the target
+# margin as total revenue increases.
 profitability_net <- purrr::map_dfr(c(15,20,25,30), function(p) {
   tag <- paste0('net_',p,'pct')
   col <- function(stem,suffix='_m') paste0(stem,'_',tag,suffix)
@@ -764,9 +996,20 @@ profitability_net <- purrr::map_dfr(c(15,20,25,30), function(p) {
       initial_pre_tax_shortfall_m)) |>
   ungroup()
 
-# Fixed pre-tax thresholds use the already validated Section 5 results.
-# Their AFTER-TAX earnings are subsequently displayed as outcomes, but taxes
-# do NOT determine how much revenue is needed to attain a fixed PRE-TAX goal.
+# ---- PREPARE BREAK-EVEN AND HISTORICAL PROFIT RESTORATION RESULTS ---------
+#
+# Organize the two fixed pre-tax profitability objectives into the same
+# table structure used for the four after-tax net margin targets above.
+#
+# The required revenue increases were already calculated in Section 5.
+# Unlike the net margin targets, these objectives require a fixed amount
+# of pre-tax profit, regardless of how much additional revenue is generated.
+# Corporate income taxes therefore do not affect the revenue required
+# to meet either objective.
+#
+# Calculate the resulting corporate taxes, after-tax income, and net
+# profit margins for each objective. For BIG4, sum the taxes calculated
+# separately for the four airports rather than applying a single tax rate.
 profitability_recovery <- purrr::map_dfr(
   c('break_even','restore'),function(kind) {
     is_break_even <- identical(kind,'break_even')
@@ -835,33 +1078,102 @@ stopifnot(nrow(profitability_model)==6L*nrow(model),
   all(is.finite(profitability_model$required_revenue_m)),
   all(profitability_model$required_revenue_m>=0))
 
-# Regression to v18 numeric model: six output rows now map onto the SAME
-# original four net-margin results plus the SAME two recovery results.
-individual_profits <- profitability_net |> filter(airport!='BIG4')
-stopifnot(all(individual_profits$shortfall_closed_per_new_revenue_dollar>0),
-  all(abs(individual_profits$pre_tax_profit_target_at_existing_revenue_m -
-    individual_profits$required_pre_tax_margin*individual_profits$revenue_m)<1e-8),
-  all(abs(individual_profits$initial_pre_tax_shortfall_m -
-    pmax(0,individual_profits$pre_tax_profit_target_at_existing_revenue_m -
-      individual_profits$purchase_adjusted_pre_tax_income_m))<1e-8),
-  all(abs(individual_profits$required_revenue_m -
-    individual_profits$initial_pre_tax_shortfall_m /
-      individual_profits$shortfall_closed_per_new_revenue_dollar)<1e-6),
-  all(abs(profitability_model$counterfactual_after_tax_income_m -
-    (profitability_model$counterfactual_pre_tax_income_m -
-     profitability_model$estimated_tax_m))<1e-6),
-  all(abs(profitability_model$achieved_net_margin -
-    profitability_model$counterfactual_after_tax_income_m /
-      profitability_model$counterfactual_revenue_m)<1e-10))
-individual_recovery <- profitability_recovery |> filter(airport!='BIG4')
-stopifnot(all(abs(individual_recovery$initial_pre_tax_shortfall_m -
-  pmax(0,individual_recovery$pre_tax_profit_target_at_existing_revenue_m -
-       individual_recovery$purchase_adjusted_pre_tax_income_m))<1e-8),
-  all(abs(individual_recovery$required_revenue_m -
-    individual_recovery$initial_pre_tax_shortfall_m /
-      individual_recovery$incremental_revenue_to_profit)<1e-6),
-  all(individual_recovery$counterfactual_pre_tax_income_m+1e-8 >=
-      individual_recovery$pre_tax_profit_target_at_existing_revenue_m))
+# ---- VALIDATE PROFITABILITY CALCULATIONS ---------------------------------
+#
+# Verify that the profitability panel reproduces the calculations used
+# to determine the revenue required under each of the six objectives.
+#
+# The tests below check the relationships between profit targets,
+# existing earnings, revenue requirements, corporate taxes, and
+# resulting profit margins.
+#
+# Each test must pass for the script to continue. Small differences
+# are permitted to account for floating-point rounding.
+
+# 1. Validate the four after-tax net profit margin targets.
+# Exclude BIG4 because its results combine four separately calculated
+# airport requirements rather than applying a single tax rate.
+individual_profits <- profitability_net |>
+  filter(airport != 'BIG4')
+
+stopifnot(
+  # Each additional revenue dollar must make a positive contribution
+  # toward closing the profit shortfall.
+  all(individual_profits$shortfall_closed_per_new_revenue_dollar > 0),
+  
+  # The initial pre-tax profit target must equal existing revenue
+  # multiplied by the pre-tax margin needed to achieve the net target.
+  all(abs(
+    individual_profits$pre_tax_profit_target_at_existing_revenue_m -
+      individual_profits$required_pre_tax_margin *
+      individual_profits$revenue_m
+  ) < 1e-8),
+  
+  # The initial shortfall must equal the difference between the
+  # target profit and post-acquisition profit, floored at zero.
+  all(abs(
+    individual_profits$initial_pre_tax_shortfall_m -
+      pmax(0,
+           individual_profits$pre_tax_profit_target_at_existing_revenue_m -
+             individual_profits$purchase_adjusted_pre_tax_income_m)
+  ) < 1e-8),
+  
+  # Required additional revenue must equal the initial shortfall
+  # divided by the contribution of each new revenue dollar.
+  all(abs(
+    individual_profits$required_revenue_m -
+      individual_profits$initial_pre_tax_shortfall_m /
+      individual_profits$shortfall_closed_per_new_revenue_dollar
+  ) < 1e-6),
+  
+  # After-tax income must equal pre-tax income minus corporate taxes.
+  # This check applies to all six profitability objectives.
+  all(abs(
+    profitability_model$counterfactual_after_tax_income_m -
+      (profitability_model$counterfactual_pre_tax_income_m -
+         profitability_model$estimated_tax_m)
+  ) < 1e-6),
+  
+  # The achieved net profit margin must equal after-tax income
+  # divided by total revenue, including any required revenue increase.
+  all(abs(
+    profitability_model$achieved_net_margin -
+      profitability_model$counterfactual_after_tax_income_m /
+      profitability_model$counterfactual_revenue_m
+  ) < 1e-10)
+)
+
+# 2. Validate the break-even and historical profit restoration targets.
+# These are fixed pre-tax objectives, so the required revenue depends
+# on the pre-tax profit shortfall rather than an after-tax margin.
+individual_recovery <- profitability_recovery |>
+  filter(airport != 'BIG4')
+
+stopifnot(
+  # The shortfall must equal the difference between the fixed
+  # pre-tax profit target and post-acquisition profit, floored at zero.
+  all(abs(
+    individual_recovery$initial_pre_tax_shortfall_m -
+      pmax(0,
+           individual_recovery$pre_tax_profit_target_at_existing_revenue_m -
+             individual_recovery$purchase_adjusted_pre_tax_income_m)
+  ) < 1e-8),
+  
+  # Required revenue must equal the pre-tax profit shortfall divided
+  # by the share of additional revenue retained as pre-tax profit.
+  all(abs(
+    individual_recovery$required_revenue_m -
+      individual_recovery$initial_pre_tax_shortfall_m /
+      individual_recovery$incremental_revenue_to_profit
+  ) < 1e-6),
+  
+  # After the revenue increase, pre-tax income must meet or exceed
+  # the break-even or historical profit restoration target.
+  all(
+    individual_recovery$counterfactual_pre_tax_income_m + 1e-8 >=
+      individual_recovery$pre_tax_profit_target_at_existing_revenue_m
+  )
+)
 
 # BIG4 requirements and taxes must be sums of four airport-specific values.
 profit_big4_check <- profitability_model |>
