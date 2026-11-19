@@ -81,8 +81,10 @@ if (!bridge_integrated_mode) {
                         'num_style', 'per_pax_style',
                         'head_acquisition', 'head_earnings',
                         'head_financing', 'head_profit', 'head_revenue')
+  bridge_parent <- environment()
   missing_objects <- required_objects[!vapply(required_objects,
-    exists, logical(1), inherits = FALSE)]
+    function(nm) exists(nm, envir = bridge_parent, inherits = TRUE),
+    logical(1))]
   if (length(missing_objects)) {
     stop('Integrated bridge is missing prepared objects: ',
          paste(missing_objects, collapse = ', '), call. = FALSE)
