@@ -221,9 +221,7 @@ if (nrow(bridge_cases) != 1080L ||
 # Explicitly defined, chart-ready long CSV. Add or remove names at the top of
 # this script to change the metric selection without editing the model.
 bridge_export <- bridge_cases |>
-  select(country = airport, everything())
-bridge_export$country <- 'Canada'
-bridge_export <- bridge_export |>
+  mutate(country = 'Canada') |>
   select(country, airport, year_label, period, scenario_id, scenario_name,
     threshold_id, profitability_objective, target_type, benchmark_mode,
     passengers, benchmark_margin, australian_ebitda_margin_pct,
@@ -331,15 +329,20 @@ formulas <- list(
   X = function(r) sprintf('V%d-K%d-L%d',r,r,r),
   Y = function(r) sprintf('IF(U%d>0,X%d/U%d,NA())',r,r,r),
   Z = function(r) sprintf('IF(%s!$B$5="Pooled 2023-25",R%d,S%d)',
-                         openxlsx::sQuote(bridge_sheet),r,r),
+                         paste0("'", bridge_sheet, "'"),r,r),
   AA = function(r) {
     if (calc_input$Airport[[r-calc_first+1L]] == 'BIG4') {
-      sprintf(paste0('SUMIFS($AA$%d:$AA$%d,',
-        '$B$%d:$B$%d,"<>BIG4",$C$%d:$C$%d,C%d,',
-        '$D$%d:$D$%d,D%d,$E$%d:$E$%d,E%d)'),
-        calc_first,calc_last,calc_first,calc_last,
-        calc_first,calc_last,r,calc_first,calc_last,r,
-        calc_first,calc_last,r)
+      # Do not use SUMIFS on the complete AA column: that would include
+      # the BIG4 cell itself in its dependency range and be circular.
+      i <- r - calc_first + 1L
+      constituents <- which(
+        calc_input$Airport %in% can_airports &
+        calc_input$Period == calc_input$Period[[i]] &
+        calc_input$Financing == calc_input$Financing[[i]] &
+        calc_input$Objective == calc_input$Objective[[i]])
+      stopifnot(length(constituents) == 4L)
+      paste0('SUM(', paste0('AA', calc_first + constituents - 1L,
+                            collapse = ','), ')')
     } else {
       sprintf('IF(M%d>Z%d,MAX(0,(Z%d*H%d-T%d)/(M%d-Z%d)),IF(T%d>=Z%d*H%d,0,NA()))',
               r,r,r,r,r,r,r,r,r,r)
@@ -419,9 +422,9 @@ openxlsx::writeData(wb, bridge_sheet, bridge_options,
 openxlsx::writeData(wb, bridge_sheet, bridge_modes,
   startRow = 3, startCol = 29, colNames = FALSE)
 for (args in list(
-  list(row = 3L, range = '$AA$3:$AA$5'),
-  list(row = 4L, range = '$AB$3:$AB$11'),
-  list(row = 5L, range = '$AC$3:$AC$4')
+  list(row = 3L, range = "'Profitability bridge'!$AA$3:$AA$5"),
+  list(row = 4L, range = "'Profitability bridge'!$AB$3:$AB$11"),
+  list(row = 5L, range = "'Profitability bridge'!$AC$3:$AC$4")
 )) {
   openxlsx::dataValidation(wb, bridge_sheet, cols = 2, rows = args$row,
     type = 'list', value = args$range)
