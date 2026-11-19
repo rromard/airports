@@ -440,7 +440,7 @@ if (length(sheet_order) != 15L ||
     !setequal(sheet_order, names(wb)) || anyDuplicated(sheet_order)) {
   stop('Invalid 15-sheet integrated workbook order.', call. = FALSE)
 }
-openxlsx::worksheetOrder(wb) <- match(sheet_order, names(wb))
+worksheetOrder(wb) <- match(sheet_order, names(wb))
 combined_book <- file.path(out_dir,
   'airport_financial_comparison_with_acquisition_2023_2025.xlsx')
 openxlsx::saveWorkbook(wb, combined_book, overwrite = TRUE)
