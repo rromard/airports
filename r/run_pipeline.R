@@ -134,6 +134,7 @@ if (run_acquisition_model) {
               'output/airport_purchase_counterfactual/acquisition_per_passenger_annual.csv',
               'output/airport_purchase_counterfactual/acquisition_per_passenger_pooled.csv',
               'output/airport_purchase_counterfactual/scenario_assumptions.csv',
+              'output/airport_purchase_counterfactual/acquisition_workbook_sources.rds',
               'output/airport_purchase_counterfactual/acquisition_presentation_amounts.csv',
               'output/airport_purchase_counterfactual/acquisition_presentation_per_passenger.csv'
             ))
