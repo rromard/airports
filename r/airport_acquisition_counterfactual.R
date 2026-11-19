@@ -309,10 +309,12 @@ if (!is.numeric(incremental_revenue_to_profit) ||
 # while debt, cash and the transaction valuation are annual-equivalent.
 
 # ---- 4. ANNUAL + POOLED BASELINES, THEN BIG4 SUMMARIES -------------------
-# CPI factors come from the financial comparison audit RDS. Pooled FLOW
-# variables are three-year SUMS in 2025 CAD, including passengers (unadjusted
-# for inflation). Debt and cash are STOCKS: use their three-year average.
-# Sale value uses mean annual RENT-ADJUSTED EBITDA, not cumulative EBITDA.
+# Combine three annual observations into one pooled period. Revenue, earnings,
+# operating costs and capital spending are flows, so their inflation-adjusted
+# amounts are summed. Debt and cash are balances at a point in time, so their
+# inflation-adjusted values are averaged rather than added together.
+# Passenger counts are summed without inflation adjustment. Sale value uses
+# annualized rent-adjusted EBITDA, not cumulative three-year earnings.
 price_factors <- financial_core |>
   select(airport, year, cpi_factor)
 assert_unique(price_factors, c('airport', 'year'), 'CPI adjustment factors')
@@ -787,6 +789,12 @@ model <- model |>
   mutate(airport = as.character(airport))
 
 # ---- 6. RECONCILIATION CHECKS --------------------------------------------
+# Verify that pooled inputs, acquisition financing, profitability requirements,
+# taxes and BIG4 aggregates follow the model's stated calculations. The script
+# stops if any result fails these internal consistency checks.
+
+# Pooled financial flows must equal the inflation-adjusted sum of annual
+# observations; pooled passenger counts must equal summed annual passengers.
 pooled_check <- annual_inputs |>
   mutate(across(all_of(flow_vars), ~ .x * cpi_factor)) |>
   group_by(airport) |>
@@ -798,10 +806,15 @@ for (nm in c(flow_vars, 'passengers')) {
                              pooled_check[[paste0(nm, '_pooled')]],
                              tolerance = 1e-9)))
 }
+# Check complete airport/period/scenario coverage, positive purchase
+# consideration and the stated share of new acquisition borrowing.
 stopifnot(nrow(model) == 5L * (length(years) + 1L) * nrow(scenarios))
 stopifnot(all(model$equity_purchase_consideration_m > 0))
 stopifnot(all(abs(model$new_acquisition_debt_m / model$equity_purchase_consideration_m -
                   model$acquisition_debt_share) < 1e-8))
+# Check that eliminating rent increases EBITDA as assumed, that sale value
+# uses annualized rent-adjusted EBITDA, and that consideration reconciles
+# to sale value after accounting for existing debt and cash.
 stopifnot(all(abs(model$rent_adjusted_ebitda_m -
                   (model$ebitda_m + model$ground_rent_m)) < 1e-8))
 stopifnot(all(abs(model$estimated_sale_value_m -
@@ -809,6 +822,9 @@ stopifnot(all(abs(model$estimated_sale_value_m -
                   model$purchase_multiple) < 1e-8))
 stopifnot(all(abs(model$estimated_sale_value_m -
                   (model$equity_purchase_consideration_m + model$gross_debt_m - model$cash_m)) < 1e-8))
+# Confirm that acquisition interest reduces earnings, while eliminated rent
+# increases them. Restoring historical profit cannot require less additional
+# profit than merely breaking even.
 stopifnot(all(abs(model$purchase_adjusted_ebtda_m -
     (model$ebitda_m + model$ground_rent_m - model$net_financing_cost_m -
      model$additional_acquisition_interest_m)) < 1e-8))
@@ -817,8 +833,11 @@ stopifnot(all(abs(model$purchase_adjusted_pre_tax_income_m -
 stopifnot(all(model$required_profit_restore_m + 1e-8 >=
               model$required_profit_break_even_m))
 
-# At the target, additional revenues increase the denominator of the margin.
-# Independently recheck the final after-tax ratio and nonnegative cash uplift.
+# For all four net-margin targets, verify nonnegative extra revenue, the
+# associated increases in profit and revenue, taxes, and the resulting margin.
+# Additional revenue enlarges the revenue denominator of the margin; when
+# an individual airport needs extra revenue, its achieved margin should
+# equal the target rather than simply exceed it.
 for (p in c(15,20,25,30)) {
   tag <- paste0('net_', p, 'pct')
   amt <- model[[paste0('required_revenue_', tag, '_m')]]
@@ -841,7 +860,9 @@ for (p in c(15,20,25,30)) {
   stopifnot(all(abs(cf_margin[active] - p / 100) < 1e-9))
 }
 
-# Tax must reconcile against the separately taxed acquisition starting point.
+# Confirm that the post-acquisition tax estimate reconciles with after-tax
+# income and margin, and that meeting a higher revenue target does not
+# reduce corporate tax relative to the acquisition starting position.
 stopifnot(all(abs(model$purchase_adjusted_after_tax_income_m -
                    (model$purchase_adjusted_pre_tax_income_m -
                       model$estimated_tax_purchase_adjusted_m)) < 1e-7),
@@ -855,7 +876,8 @@ for (p in c(15,20,25,30)) {
                     (tax - model$estimated_tax_purchase_adjusted_m)) < 1e-7),
             all(tax_increment >= -1e-8))
 }
-# Aggregation consistency of the BIG4 profit targets and requirements.
+# Confirm that BIG4 profit targets, additional revenue requirements and
+# tax estimates equal the sums calculated separately for the four airports.
 for (nm in profit_aggregate_cols) {
   check <- model |>
     group_by(scenario_id, period, year_label) |>
@@ -2512,13 +2534,13 @@ openxlsx::setColWidths(wb,notes_sheet,cols=1:7,
 openxlsx::freezePane(wb,notes_sheet,firstActiveRow=4)
 
 # ---- 13. PER-PASSENGER COMPARISON EXPORTS (2025 CAD) -------------------
-# Schema closely mirrors GitHub r/per_unit_comparison.R (V10)'s cost_groups_annual and
-# cost_groups_pooled: country, airport, year/period, activity, variable,
-# value_m, passengers, amount_cad_2025_m, per_passenger_cad_2025.
-# Scenario is an EXTRA key. Keep it: no silent averaging across cases.
-# No BIG4 rows in the integration feeds; the comparator is by airport.
-# All figures are FLOW amounts. Do not add transaction value or outstanding
-# debt stocks to the per-passenger operating-cost comparison.
+# Prepare acquisition results for comparison with observed Canadian and
+# Australian airport finances, using the same 2025-CAD and per-passenger
+# conventions as the upstream comparison data.
+# Keep each financing scenario separate and exclude BIG4: comparisons are
+# airport-specific. These are modelled financial flows and revenue needs,
+# not observed cost categories or outstanding transaction/debt stocks.
+# Do not automatically add them to existing operating-cost totals.
 comparison_fields <- c(
   'cf_observed_total_revenue' = 'revenue_m',
   'cf_ground_rent_eliminated' = 'ground_rent_m',
@@ -2534,6 +2556,9 @@ comparison_fields <- c(
   'cf_net_additional_financing_pressure' = 'net_added_financing_pressure_m',
   'cf_total_revenue_after_restore' = 'total_revenue_after_restore_m'
 )
+# Net financing pressure offsets new acquisition interest against the
+# savings from eliminating federal ground rent. Restoration revenue is
+# existing revenue plus the extra amount needed to regain historical profit.
 comparison_base <- model |>
   filter(airport %in% can_airports) |>
   mutate(net_added_financing_pressure_m =
@@ -2613,8 +2638,11 @@ stopifnot(nrow(pooled_flow_check) == 3L * 4L * length(additive_checks),
           pooled_flow_check$reconstructed_pax) < 1e-5))
 
 # ---- 14. FINISHED ACQUISITION PRESENTATION EXPORTS ----------------------
-# This is the only implementation of the acquisition presentation bridge and
-# its 15% operating sensitivities. The workbook builder formats only.
+# Combine financing results, profitability requirements and observed airport
+# comparison data into presentation-ready tables. Keep acquisition values
+# separate from operating flows; show flow measures both in total dollars
+# and per passenger. Include alternative operating assumptions for the
+# 15% net-margin target, without changing the main acquisition model.
 annual <- comparison_annual
 pooled <- comparison_pooled
 assumptions <- scenarios
@@ -2785,7 +2813,12 @@ if (nrow(finance_rows) != 48L ||
        call. = FALSE)
 }
 
-# Independent financing/purchase reconciliation before display.
+# Before displaying transaction figures, check that sale value equals the
+# valuation earnings times the multiple; consideration reflects debt and
+# cash; new borrowing matches the debt share; buyer equity is the remainder;
+# total debt combines existing and new debt; and debt-to-value uses total
+# debt divided by estimated sale value. All figures must remain consistent
+# after conversion to 2025 CAD.
 is_close <- function(a, b, tol = 1e-5) {
   all(is.finite(a) & is.finite(b) &
       abs(a - b) <= tol * pmax(1, abs(a), abs(b)))
@@ -2817,6 +2850,12 @@ names(bridge)[-(1:3)] <- unname(bridge_headers)
 # financing cases and years, applying the EXACT SAME model formula but ONLY
 # to the 15% after-tax margin. No change to the acquisition model itself.
 # (An optional audit appendix need not be enabled for this integration.)
+# Test alternative operating-cost assumptions for the revenue needed to
+# achieve a 15% after-tax net margin: (1) 100% of extra revenue contributes
+# to pre-tax profit (baseline); (2) 80% contributes; (3) operating costs
+# excluding rent fall by 10%; and (4) the 80% contribution and 10% savings
+# apply together. These are illustrative sensitivities, not forecasts of
+# efficiency gains. Financing and tax assumptions remain unchanged.
 profit15 <- profitability |>
   filter(airport %in% expected_airports, threshold_id == 'net_15pct') |>
   select(scenario_id, airport, year, statutory_tax_rate,
@@ -2824,6 +2863,9 @@ profit15 <- profitability |>
 sensitivity_base <- finance_rows |>
   left_join(profit15, by = c('scenario_id','airport','year')) |>
   mutate(
+    # Approximate operating costs excluding federal ground rent by taking
+    # reported revenue less EBITDA and rent. The 10% saving applies to
+    # this cost base, not to all expenditure or acquisition debt service.
     operating_cost_base_m = revenue_m - ebitda_m - ground_rent_m,
     target_pre_tax_m = required_pre_tax_margin * revenue_m,
     baseline_15_m = pmax(0, target_pre_tax_m -
