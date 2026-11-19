@@ -368,8 +368,16 @@ openxlsx::freezePane(wb, notes_sheet, firstActiveRow = 3)
 # The bridge consumes the same validated, already-adjusted R model and the
 # matched Australian EBITDA comparison. The module adds two worksheets and
 # chart-friendly independent CSV results; the acquisition math is unchanged.
-sys.source(here::here('r', 'append_profitability_bridge.R'),
-           envir = environment())
+# Isolate the integrated-mode flag so direct source() calls to the bridge
+# remain standalone even later in the same R session.
+bridge_sheets <- local({
+  bridge_integrated_mode <- TRUE
+  sys.source(here::here('r', 'append_profitability_bridge.R'),
+             envir = environment())
+  c(bridge_sheet, bridge_calc_sheet)
+})
+bridge_sheet <- bridge_sheets[[1L]]
+bridge_calc_sheet <- bridge_sheets[[2L]]
 
 # Preserve all ten observed-finance worksheets together, then insert the
 # selectable bridge immediately before the two slim acquisition panels.
