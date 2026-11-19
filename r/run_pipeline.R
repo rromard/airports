@@ -145,8 +145,11 @@ if (run_financial_comparison) {
   run_stage('Build documented and acquisition comparison workbooks',
     'build_financial_comparison_workbook.R',
     c('output/airport_comparison/airport_financial_comparison_documented_2023_2025.xlsx',
-      if (run_acquisition_model)
-        'output/airport_comparison/airport_financial_comparison_with_acquisition_2023_2025.xlsx'),
+      if (run_acquisition_model) c(
+        'output/airport_comparison/airport_financial_comparison_with_acquisition_2023_2025.xlsx',
+        'output/airport_comparison/profitability_bridge/australian_ebitda_benchmarks.csv',
+        'output/airport_comparison/profitability_bridge/profitability_bridge_scenarios_long.csv',
+        'output/airport_comparison/profitability_bridge/profitability_bridge_chart_long.csv')),
     bindings = list(include_acquisition = run_acquisition_model))
 }
 
