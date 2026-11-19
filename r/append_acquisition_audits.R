@@ -55,6 +55,19 @@ if (nrow(model) != 60L || nrow(profitability_model) != 360L ||
       c('scenario_id', 'airport', 'period', 'year_label', 'threshold_id')])) {
   stop('Acquisition R sources have unexpected model coverage.', call. = FALSE)
 }
+# The 2025-CAD presentation and the two formula audits must start from the
+# same price basis. Check unchanged financial identities after conversion.
+if (any(abs(model$estimated_sale_value_m -
+            model$valuation_ebitda_m * model$purchase_multiple) > 1e-5) ||
+    any(abs(model$purchase_adjusted_pre_tax_income_m -
+            (model$net_income_m + model$ground_rent_m -
+               model$additional_acquisition_interest_m)) > 1e-5) ||
+    any(abs(profitability_model$required_revenue_per_pax_cad -
+            profitability_model$required_revenue_m * 1e6 /
+              profitability_model$passengers) > 1e-5)) {
+  stop('Converted acquisition amounts or per-passenger rates fail checks.',
+       call. = FALSE)
+}
 
 # Capital spending was already a MODEL INPUT but absent from the slim audit.
 # Display it and both pre-existing financing-capacity diagnostics without
