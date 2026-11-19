@@ -590,15 +590,15 @@ can_fin_vars <- c('total_revenue', 'ebitda_can',
                   'depreciation_amortisation', 'asset_impairment',
                   'net_financing_costs', 'net_income_can',
                   'profit_before_tax_can', 'income_tax_expense_can')
-can_fin <- can_long |>
+can_fin_raw <- can_long |>
   filter(year %in% recent_years, variable %in% can_fin_vars) |>
   select(airport, year, variable, value_m) |>
   pivot_wider(names_from = variable, values_from = value_m)
 for (nm in can_fin_vars) {
-  if (!nm %in% names(can_fin)) can_fin[[nm]] <- NA_real_
+  if (!nm %in% names(can_fin_raw)) can_fin_raw[[nm]] <- NA_real_
 }
 can_fin <- tidyr::expand_grid(airport = ports$airport, year = recent_years) |>
-  left_join(can_fin, by = c('airport', 'year')) |>
+  left_join(can_fin_raw, by = c('airport', 'year')) |>
   left_join(pass_df, by = c('airport', 'year')) |>
   left_join(can_cpi |> select(year, adjustment_to_2025), by = 'year') |> 
   transmute(
