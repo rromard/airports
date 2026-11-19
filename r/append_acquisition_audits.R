@@ -601,24 +601,27 @@ openxlsx::setRowHeights(wb, notes_sheet,
   rows = 10:(9L + nrow(method_notes)), heights = 52)
 openxlsx::freezePane(wb, notes_sheet, firstActiveRow = 3)
 
-# Place the two analytic stages after observed totals, with the formula
-# audits and methodology following the existing per-passenger comparison.
-new_sheets <- c(acq_sheet, prof_sheet, acq_audit_sheet,
-                profit_audit_sheet, notes_sheet)
+# FINAL ANALYTIC BRIDGE | DISPLAY AND EXPORT -----------------------------
+# The bridge consumes the same validated, already-adjusted R model and the
+# matched Australian EBITDA comparison. The module adds two worksheets and
+# chart-friendly independent CSV results; the acquisition math is unchanged.
+sys.source(here::here('r', 'append_profitability_bridge.R'),
+           envir = environment())
+
+# Preserve all ten observed-finance worksheets together, then insert the
+# selectable bridge immediately before the two slim acquisition panels.
+new_sheets <- c(bridge_sheet, acq_sheet, prof_sheet, bridge_calc_sheet,
+                acq_audit_sheet, profit_audit_sheet, notes_sheet)
 sheet_order <- character()
 for (nm in old_sheets) {
   sheet_order <- c(sheet_order, nm)
-  if (nm == 'Total value comparison') {
-    sheet_order <- c(sheet_order, acq_sheet, prof_sheet)
-  }
   if (nm == 'Per-passenger comparison') {
-    sheet_order <- c(sheet_order, acq_audit_sheet,
-                     profit_audit_sheet, notes_sheet)
+    sheet_order <- c(sheet_order, new_sheets)
   }
 }
-if (length(sheet_order) != 15L ||
+if (length(sheet_order) != 17L ||
     !setequal(sheet_order, names(wb)) || anyDuplicated(sheet_order)) {
-  stop('Invalid 15-sheet integrated workbook order.', call. = FALSE)
+  stop('Invalid 17-sheet integrated workbook order.', call. = FALSE)
 }
 worksheetOrder(wb) <- match(sheet_order, names(wb))
 combined_book <- file.path(out_dir,
