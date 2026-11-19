@@ -2,22 +2,20 @@
 # Run from the airports project:
 #   source(here::here('r', 'run_pipeline.R'))
 #
-# Default branch: refresh Canada / Australia comparisons, build the documented
-# financial workbook, run the private-acquisition counterfactual, and append
-# its per-passenger figures to a COPY of the financial comparison workbook.
+# Default: prepare financial comparisons, run the acquisition counterfactual,
+# then build both documented and integrated production workbooks.
 # Earlier revenue-growth counterfactual / sensitivity / plotting stages are
 # retained as an OPTIONAL, separate branch (disabled by default).
 #
 # This orchestrator does not change the formulas in any component script.
-# Critical: the financial builder's in-memory `wb` is passed into the appender
-# as `comparison_wb`; we do NOT reload the formula-heavy XLSX via loadWorkbook().
+# The workbook builder consumes finished acquisition CSVs; generated XLSX files
+# are never read back into any modeling stage.
 
 # ---- CONFIGURATION --------------------------------------------------------
 rebuild_australian_sources <- FALSE
 refresh_canadian_sources  <- TRUE
 run_financial_comparison <- TRUE
 run_acquisition_model    <- TRUE
-append_acquisition       <- TRUE
 
 # Older revenue-growth counterfactual branch, unrelated to private acquisition.
 run_legacy_counterfactual <- FALSE
@@ -36,13 +34,9 @@ if (!file.exists(file.path(root, 'airports.Rproj')) ||
        'Detected root: ', root, call. = FALSE)
 }
 
-if (append_acquisition && !run_acquisition_model) {
-  stop('append_acquisition = TRUE requires run_acquisition_model = TRUE.',
-       call. = FALSE)
-}
 if (run_acquisition_model && !run_financial_comparison) {
-  stop('The acquisition model needs the documented comparison workbook; ',
-       'set run_financial_comparison = TRUE.', call. = FALSE)
+  stop('The acquisition model requires updated upstream comparison data.',
+       call. = FALSE)
 }
 
 # Run each stage in its own environment. Pass objects in explicitly when a
@@ -131,16 +125,7 @@ if (run_financial_comparison) {
               'output/airport_comparison/comparison_pooled_pp_2023_2025.csv'
             ))
 
-  # Capture the ORIGINAL builder object before the acquisition script creates
-  # its own `wb`. The appender requires this retained in-memory workbook.
-  comparison_wb <- run_stage(
-    'Build documented financial comparison workbook',
-    'build_financial_comparison_workbook.R',
-    'output/airport_comparison/airport_financial_comparison_documented_2023_2025.xlsx',
-    return_object = 'wb'
-  )
 }
-
 # ---- 4. PRIVATE-ACQUISITION COUNTERFACTUAL -------------------------------
 if (run_acquisition_model) {
   run_stage('Run three-case airport acquisition counterfactual',
@@ -148,15 +133,20 @@ if (run_acquisition_model) {
               'output/airport_purchase_counterfactual/airport_acquisition_counterfactual_audit.xlsx',
               'output/airport_purchase_counterfactual/acquisition_per_passenger_annual.csv',
               'output/airport_purchase_counterfactual/acquisition_per_passenger_pooled.csv',
-              'output/airport_purchase_counterfactual/scenario_assumptions.csv'
+              'output/airport_purchase_counterfactual/scenario_assumptions.csv',
+              'output/airport_purchase_counterfactual/acquisition_presentation_amounts.csv',
+              'output/airport_purchase_counterfactual/acquisition_presentation_per_passenger.csv'
             ))
+}
 
-  if (append_acquisition) {
-    run_stage('Add acquisition comparison to production workbook COPY',
-              'append_acquisition_to_comparison_workbook.R',
-              'output/airport_comparison/airport_financial_comparison_with_acquisition_2023_2025.xlsx',
-              bindings = list(comparison_wb = comparison_wb))
-  }
+# ---- 5. FINAL WORKBOOKS ---------------------------------------------------
+if (run_financial_comparison) {
+  run_stage('Build documented and acquisition comparison workbooks',
+    'build_financial_comparison_workbook.R',
+    c('output/airport_comparison/airport_financial_comparison_documented_2023_2025.xlsx',
+      if (run_acquisition_model)
+        'output/airport_comparison/airport_financial_comparison_with_acquisition_2023_2025.xlsx'),
+    bindings = list(include_acquisition = run_acquisition_model))
 }
 
 # ---- 5. ORIGINAL REVENUE-GROWTH COUNTERFACTUAL (OPTIONAL) -----------------

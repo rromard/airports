@@ -4,14 +4,12 @@
 #
 # Run from existing R project root:
 #   source(here::here('r', 'airport_acquisition_counterfactual_v22.R'))
-# or change input_path below to your documented comparison workbook.
+# Uses the upstream financial comparison audit; no Excel input.
 # Requires: tidyverse, readxl, janitor, here, openxlsx (for audit workbook).
 #
 # INPUT MANIFEST
-# 1. output/airport_comparison/airport_financial_comparison_documented_2023_2025.xlsx
-#    Sheets: Canadian airport finances (EBITDA, revenues, net income,
-#      net financing expense, ground rent), Passengers & adjustments
-#      (passengers), Financial calculations (CPI factors).
+# 1. output/airport_comparison/financial_comparison_audit_2023_2025.rds
+#    Nominal Canadian finances, ground rent, passengers and CPI factors.
 # 2. data/canada/airport_acquisition_inputs_2023_2025.xlsx
 #    First data sheet, skip=3: airport, year, gross_debt_m, cash_m,
 #      capex_cash_m (cash capex may be missing).
@@ -28,6 +26,7 @@
 # 8. acquisition_per_passenger_annual.csv: 2023–25 2025-CAD values.
 # 9. acquisition_per_passenger_pooled.csv: pooled 2023–25 2025-CAD values.
 # 10–11. Two ggplot2 2025 scenario charts, PNG format.
+# 12–13. Two finished acquisition presentation CSVs (total, per-passenger).
 # The standalone operating-sensitivity worksheet from v21 is optional (off).
 #
 # IMPORTANT: This is a STATIC, ACQUISITION-FINANCING SCREEN, not an equity IRR,
@@ -39,7 +38,7 @@
 # All financial inputs are nominal CAD millions in their observed year.
 # Each airport's existing borrowings are RETAINED at observed financing costs.
 #
-# Why a small supplement? The comparison workbook has EBITDA, rent, revenue,
+# Why a small supplement? The upstream comparison audit has EBITDA, rent, revenue,
 # passengers and NET financing expense, but not gross debt, cash or capex.
 # Populate the 12-row companion Excel file from the operator-report process.
 # Do not mix net and gross interest: source financing cost is NET, and the
@@ -58,7 +57,7 @@ can_airports <- c('YYC', 'YUL', 'YVR', 'YYZ')
 
 # Project paths (confirmed against existing financial comparison pipeline).
 input_path <- here('output', 'airport_comparison',
-                   'airport_financial_comparison_documented_2023_2025.xlsx')
+                   'financial_comparison_audit_2023_2025.rds')
 supplement_path <- here('data', 'canada',
                         'airport_acquisition_inputs_2023_2025.xlsx')
 # Versioned directory keeps previous outputs separate from v21 results.
@@ -112,46 +111,42 @@ assert_unique <- function(d, keys, label) {
   invisible(d)
 }
 
-if (is.na(input_path) || !file.exists(input_path)) {
-  stop('Comparison workbook missing: ', input_path, call. = FALSE)
+if (!file.exists(input_path)) {
+  stop('Missing financial comparison audit RDS: ', input_path, call. = FALSE)
 }
-
-source_fin <- readxl::read_excel(input_path,
-                                 sheet = 'Canadian airport finances', skip = 3) |>
-  transmute(airport = as.character(Airport), year = as.integer(Year),
-            measure = as.character(Measure), value_m = as.numeric(Value)) |>
-  filter(airport %in% can_airports, year %in% years,
-         measure %in% c('EBITDA', 'Total Revenues', 'Net Income',
-                        'Interest and financing costs net of interest income',
-                        'Ground rent (federal gov payments)')) |>
-  mutate(measure = recode(measure,
-                         'EBITDA' = 'ebitda_m',
-                         'Total Revenues' = 'revenue_m',
-                         'Net Income' = 'net_income_m',
-                         'Interest and financing costs net of interest income' =
-                           'net_financing_cost_m',
-                         'Ground rent (federal gov payments)' =
-                           'ground_rent_m'))
-assert_unique(source_fin, c('airport', 'year', 'measure'), 'financial workbook')
-financial <- source_fin |>
-  pivot_wider(names_from = measure, values_from = value_m)
-
-traffic <- readxl::read_excel(input_path,
-                              sheet = 'Passengers & adjustments', skip = 3) |>
-  transmute(country = as.character(Country), airport = as.character(Airport),
-            year = as.integer(Year), measure = as.character(Measure),
-            value = as.numeric(Value)) |>
+comparison_audit <- readRDS(input_path)
+if (!is.list(comparison_audit) ||
+    !all(c('financial_source_annual', 'cost_groups_annual') %in%
+         names(comparison_audit))) {
+  stop('Financial comparison audit RDS is incomplete.', call. = FALSE)
+}
+# The upstream comparison audit is the authoritative Canadian source.
+# Extract nominal financial flows, passengers and CPI before scenario modeling.
+financial_core <- comparison_audit$financial_source_annual |>
+  filter(country == 'Canada', airport %in% can_airports, year %in% years) |>
+  transmute(airport = as.character(airport), year = as.integer(year),
+            revenue_m = as.numeric(ebitda_ebit_revenue_basis),
+            ebitda_m = as.numeric(ebitda),
+            net_income_m = as.numeric(net_income),
+            net_financing_cost_m = as.numeric(net_financing_costs),
+            passengers = as.numeric(passengers),
+            cpi_factor = as.numeric(adjustment_to_2025))
+assert_unique(financial_core, c('airport', 'year'), 'financial comparison audit')
+ground_rent <- comparison_audit$cost_groups_annual |>
   filter(country == 'Canada', airport %in% can_airports,
-         year %in% years, measure == 'passengers') |>
-  transmute(airport, year, passengers = value)
-assert_unique(traffic, c('airport', 'year'), 'traffic workbook')
-
-observed <- financial |> inner_join(traffic, by = c('airport', 'year'))
-if (nrow(observed) != length(can_airports) * length(years) ||
-    anyNA(observed) || any(observed$ebitda_m <= 0) ||
-    any(observed$revenue_m <= 0) || any(observed$passengers <= 0) ||
-    any(observed$ground_rent_m < 0)) {
-  stop('Incomplete or invalid Canadian financial/passenger keys for 2023–2025.',
+         year %in% years, variable == 'federal_ground_rent') |>
+  transmute(airport = as.character(airport), year = as.integer(year),
+            ground_rent_m = as.numeric(value_m))
+assert_unique(ground_rent, c('airport', 'year'), 'federal ground rent')
+observed <- financial_core |>
+  select(-cpi_factor) |>
+  left_join(ground_rent, by = c('airport', 'year'))
+if (nrow(financial_core) != 12L || nrow(ground_rent) != 12L ||
+    nrow(observed) != 12L || anyNA(financial_core) || anyNA(observed) ||
+    any(observed$ebitda_m <= 0) || any(observed$revenue_m <= 0) ||
+    any(observed$passengers <= 0) || any(observed$ground_rent_m < 0) ||
+    any(financial_core$cpi_factor <= 0)) {
+  stop('Incomplete or invalid Canadian financial, passenger, rent or CPI input.',
        call. = FALSE)
 }
 
@@ -206,18 +201,14 @@ if (!is.numeric(incremental_revenue_to_profit) ||
 # while debt, cash and the transaction valuation are annual-equivalent.
 
 # ---- 4. ANNUAL + POOLED BASELINES, THEN BIG4 SUMMARIES -------------------
-# CPI factors come from the documented comparison workbook. Pooled FLOW
+# CPI factors come from the financial comparison audit RDS. Pooled FLOW
 # variables are three-year SUMS in 2025 CAD, including passengers (unadjusted
 # for inflation). Debt and cash are STOCKS: use their three-year average.
 # Sale value uses mean annual RENT-ADJUSTED EBITDA, not cumulative EBITDA.
-price_factors <- readxl::read_excel(input_path,
-                                   sheet = 'Financial calculations', skip = 3) |>
-  filter(Country == 'Canada', Measure == 'ebitda',
-         Airport %in% can_airports, Year %in% years) |>
-  transmute(airport = as.character(Airport), year = as.integer(Year),
-            cpi_factor = as.numeric(`CPI factor applied`))
+price_factors <- financial_core |>
+  select(airport, year, cpi_factor)
 assert_unique(price_factors, c('airport', 'year'), 'CPI adjustment factors')
-if (nrow(price_factors) != 12 || anyNA(price_factors) ||
+if (nrow(price_factors) != 12L || anyNA(price_factors) ||
     any(price_factors$cpi_factor <= 0)) stop('Missing CPI factors.')
 
 annual_inputs <- baseline |>
@@ -906,7 +897,7 @@ wb <- openxlsx::createWorkbook()
 notes <- tibble::tribble(
   ~Topic, ~Explanation,
   'Scope', 'Static, illustrative acquisition-financing counterfactual for four Canadian airports, not an acquisition offer, forecast of fees, investor IRR or complete cash-flow model.',
-  'Source 1', paste0('Financial inputs: ',input_path,'; sheets Canadian airport finances (skip 3), Passengers & adjustments (skip 3), Financial calculations (skip 3).'),
+  'Source 1', paste0('Financial inputs: ',input_path,'; financial_source_annual and cost_groups_annual (federal_ground_rent), plus Canadian CPI factors.'),
   'Source 2', paste0('Supplemental debt/cash/capex inputs: ',supplement_path,'; first data sheet, skip 3.'),
   'Output location', out_dir,
   'Output 1 (workbook)', 'airport_acquisition_counterfactual_audit.xlsx: two central result sheets, a three-case comparison, two formula audits, and methodology notes. An operating-sensitivity appendix is optional (off by default).',
@@ -2309,7 +2300,312 @@ stopifnot(nrow(pooled_flow_check) == 3L * 4L * length(additive_checks),
   all(abs(pooled_flow_check$passengers -
           pooled_flow_check$reconstructed_pax) < 1e-5))
 
-# ---- 14. TWO SIMPLE PLOTS | 2025 PURCHASE, NO DEMAND MODEL ------------
+# ---- 14. FINISHED ACQUISITION PRESENTATION EXPORTS ----------------------
+# This is the only implementation of the acquisition presentation bridge and
+# its 15% operating sensitivities. The workbook builder formats only.
+annual <- comparison_annual
+pooled <- comparison_pooled
+assumptions <- scenarios
+financing <- acquisition_export
+profitability <- profitability_model
+observed_annual <- readr::read_csv(
+  here('output', 'airport_comparison', 'comparison_annual_pp_2023_2025.csv'),
+  show_col_types = FALSE)
+observed_pooled <- readr::read_csv(
+  here('output', 'airport_comparison', 'comparison_pooled_pp_2023_2025.csv'),
+  show_col_types = FALSE)
+
+assert_cols <- function(d, cols, label) {
+  absent <- setdiff(cols, names(d))
+  if (length(absent)) {
+    stop(label, ' lacks: ', paste(absent, collapse = ', '), call. = FALSE)
+  }
+}
+required_colnames <- c('country', 'airport', 'year', 'period', 'scenario',
+  'variable', 'passengers', 'per_passenger_cad_2025', 'amount_cad_2025_m')
+assert_cols(annual, required_colnames, 'Acquisition annual CSV')
+assert_cols(pooled, required_colnames, 'Acquisition pooled CSV')
+assert_cols(assumptions, c('scenario_name', 'purchase_multiple',
+  'acquisition_debt_share', 'acquisition_interest_rate'),
+  'Acquisition assumptions')
+assert_cols(observed_annual, c('country', 'airport', 'year', 'total_revenue'),
+            'Observed annual comparison')
+assert_cols(observed_pooled, c('country', 'airport', 'total_revenue'),
+            'Observed pooled comparison')
+
+scenario_names <- c('Low-cost', 'Central', 'High-cost')
+expected_airports <- c('YYC', 'YUL', 'YVR', 'YYZ')
+if (!identical(assumptions$scenario_name, scenario_names) ||
+    nrow(assumptions) != 3L ||
+    !setequal(unique(annual$airport), expected_airports) ||
+    !setequal(unique(pooled$airport), expected_airports) ||
+    !setequal(unique(annual$scenario), scenario_names) ||
+    !setequal(unique(pooled$scenario), scenario_names)) {
+  stop('Acquisition scenario/airport coverage does not match the three-case model.',
+       call. = FALSE)
+}
+
+# Reconcile the model's observed revenue yield with the authoritative
+# comparison before adding anything. Both are already in 2025 CAD.
+check_observed <- function(acq, official, keys, label) {
+  a <- acq |>
+    filter(scenario == 'Central', variable == 'cf_observed_total_revenue') |>
+    select(all_of(keys), model_pp = per_passenger_cad_2025)
+  b <- official |>
+    filter(country == 'Canada') |>
+    select(all_of(keys), published_pp = total_revenue)
+  if (anyDuplicated(a[keys]) || anyDuplicated(b[keys])) {
+    stop('Duplicate revenue-validation keys in ', label, call. = FALSE)
+  }
+  comparison <- inner_join(a, b, by = keys)
+  if (nrow(comparison) != nrow(a) || nrow(comparison) != nrow(b) ||
+      anyNA(comparison) ||
+      any(abs(comparison$model_pp - comparison$published_pp) > 1e-4)) {
+    stop('Acquisition revenue per passenger does not reconcile with ', label,
+         '. Rebuild from the same current source inputs before combining.',
+         call. = FALSE)
+  }
+}
+check_observed(annual, observed_annual, c('airport','year'), 'annual comparison')
+check_observed(pooled, observed_pooled, 'airport', 'pooled comparison')
+
+# The presentation keeps the model's flow measures alongside a SMALL
+# transaction bridge. Valuation/debt/cash/equity remain absolute 2025 CAD
+# millions on BOTH panels: dividing a transaction stock by annual passengers
+# would imply an inappropriate annual-flow interpretation.
+metric_names <- c(
+  cf_observed_total_revenue = 'Observed revenue',
+  cf_ground_rent_eliminated = 'Federal ground rent eliminated',
+  cf_additional_acquisition_interest = 'Additional acquisition interest',
+  cf_post_acquisition_net_financing_cost = 'Post-acquisition net financing costs',
+  cf_net_additional_financing_pressure = 'Net added financing pressure',
+  cf_post_acquisition_pre_tax_income = 'Post-acquisition pretax income',
+  cf_additional_revenue_break_even = 'Revenue needed: break even',
+  cf_additional_revenue_restore = 'Revenue needed: restore profit',
+  cf_total_revenue_after_restore = 'Total revenue after restoring profit',
+  cf_additional_revenue_net_15pct = 'Revenue needed: 15% net margin',
+  cf_additional_revenue_net_20pct = 'Revenue needed: 20% net margin',
+  cf_additional_revenue_net_25pct = 'Revenue needed: 25% net margin',
+  cf_additional_revenue_net_30pct = 'Revenue needed: 30% net margin'
+)
+
+# All keys use the literal period label; year remains numeric in the source.
+period_name <- function(year) if_else(is.na(year),
+  'Pooled 2023–25', as.character(year))
+panel_keys <- c('airport', 'period_label', 'scenario')
+
+long_panel <- bind_rows(annual, pooled) |>
+  filter(variable %in% names(metric_names)) |>
+  mutate(period_label = period_name(year),
+         scenario = factor(scenario, levels = scenario_names)) |>
+  select(airport, period_label, scenario, variable, passengers,
+         per_passenger_cad_2025, amount_cad_2025_m)
+if (nrow(long_panel) != 4L * 4L * 3L * length(metric_names) ||
+    anyNA(long_panel) ||
+    anyDuplicated(long_panel[c(panel_keys, 'variable')]) ||
+    !setequal(unique(long_panel$variable), names(metric_names)) ||
+    any(long_panel$passengers <= 0)) {
+  stop('Incomplete or duplicated annual/pooled acquisition comparison data.',
+       call. = FALSE)
+}
+conversion_error <- abs(long_panel$per_passenger_cad_2025 -
+  long_panel$amount_cad_2025_m * 1e6 / long_panel$passengers)
+if (any(!is.finite(conversion_error)) || any(conversion_error > 1e-7)) {
+  stop('Acquisition absolute and per-passenger figures do not reconcile.',
+       call. = FALSE)
+}
+
+# One source row per airport x period x financing case (BIG4 is excluded).
+# The audit model exports stock figures in nominal CAD millions for each
+# annual snapshot and in 2025 CAD millions for its pooled balance-sheet
+# assumptions (which are AVERAGES, not three-year stock sums).
+bridge_fields <- c(
+  'valuation_ebitda_m', 'estimated_sale_value_m', 'gross_debt_m',
+  'cash_m', 'equity_purchase_consideration_m',
+  'new_acquisition_debt_m', 'buyer_equity_contribution_m',
+  'total_gross_debt_m'
+)
+bridge_headers <- c(
+  purchase_multiple = 'Sale multiple (x)',
+  acquisition_debt_share = 'New debt share (%)',
+  acquisition_interest_rate = 'Acquisition rate (%)',
+  valuation_ebitda_m = 'Annualized EBITDA after rent saving (2025 CAD m)',
+  estimated_sale_value_m = 'Estimated enterprise value (2025 CAD m)',
+  gross_debt_m = 'Existing gross debt (2025 CAD m)',
+  cash_m = 'Existing cash (2025 CAD m)',
+  equity_purchase_consideration_m = 'Equity purchase consideration (2025 CAD m)',
+  new_acquisition_debt_m = 'New acquisition borrowing (2025 CAD m)',
+  buyer_equity_contribution_m = 'Buyer equity contribution (2025 CAD m)',
+  total_gross_debt_m = 'Total gross debt after purchase (2025 CAD m)',
+  actual_total_gross_debt_to_sale_value = 'Post-purchase gross debt / EV (%)'
+)
+assert_cols(financing, c('scenario_id','airport','year','period',
+                        'cpi_factor','purchase_multiple',
+                        'acquisition_debt_share','acquisition_interest_rate',
+                        'revenue_m','ebitda_m','ground_rent_m',
+                        'purchase_adjusted_pre_tax_income_m',
+                        bridge_fields, 'actual_total_gross_debt_to_sale_value'),
+            'Acquisition financing CSV')
+assert_cols(profitability, c('scenario_id','airport','year',
+  'threshold_id','statutory_tax_rate','required_pre_tax_margin',
+  'required_revenue_m'), 'Acquisition profitability CSV')
+
+finance_rows <- financing |>
+  filter(airport %in% expected_airports) |>
+  left_join(assumptions |>
+    select(scenario_name, purchase_multiple, acquisition_debt_share,
+           acquisition_interest_rate),
+    by = c('purchase_multiple','acquisition_debt_share',
+           'acquisition_interest_rate')) |>
+  mutate(
+    scenario = scenario_name,
+    period_label = period_name(year),
+    # Annual source stocks were reported at that year's prices.
+    # Pooled stocks already reflect CPI-adjusted means in 2025 CAD.
+    factor_2025 = if_else(is.na(year), 1.0, cpi_factor),
+    across(all_of(bridge_fields), ~ .x * factor_2025)
+  )
+if (nrow(finance_rows) != 48L ||
+    anyNA(finance_rows[c(panel_keys, bridge_fields)]) ||
+    anyDuplicated(finance_rows[panel_keys]) ||
+    any(finance_rows$estimated_sale_value_m <= 0)) {
+  stop('Invalid, unmatched or duplicated acquisition financing bridge.',
+       call. = FALSE)
+}
+
+# Independent financing/purchase reconciliation before display.
+is_close <- function(a, b, tol = 1e-5) {
+  all(is.finite(a) & is.finite(b) &
+      abs(a - b) <= tol * pmax(1, abs(a), abs(b)))
+}
+if (!is_close(finance_rows$estimated_sale_value_m,
+              finance_rows$valuation_ebitda_m * finance_rows$purchase_multiple) ||
+    !is_close(finance_rows$equity_purchase_consideration_m,
+              finance_rows$estimated_sale_value_m -
+              finance_rows$gross_debt_m + finance_rows$cash_m) ||
+    !is_close(finance_rows$new_acquisition_debt_m,
+              finance_rows$equity_purchase_consideration_m *
+              finance_rows$acquisition_debt_share) ||
+    !is_close(finance_rows$buyer_equity_contribution_m,
+              finance_rows$equity_purchase_consideration_m -
+              finance_rows$new_acquisition_debt_m) ||
+    !is_close(finance_rows$total_gross_debt_m,
+              finance_rows$gross_debt_m + finance_rows$new_acquisition_debt_m) ||
+    !is_close(finance_rows$actual_total_gross_debt_to_sale_value,
+              finance_rows$total_gross_debt_m /
+              finance_rows$estimated_sale_value_m)) {
+  stop('Acquisition financing bridge fails a transaction/debt check.',
+       call. = FALSE)
+}
+bridge <- finance_rows |>
+  select(all_of(panel_keys), all_of(names(bridge_headers)))
+names(bridge)[-(1:3)] <- unname(bridge_headers)
+
+# Sensitivity calculations extend the optional 2025 CENTRAL appendix to all
+# financing cases and years, applying the EXACT SAME model formula but ONLY
+# to the 15% after-tax margin. No change to the acquisition model itself.
+# (An optional audit appendix need not be enabled for this integration.)
+profit15 <- profitability |>
+  filter(airport %in% expected_airports, threshold_id == 'net_15pct') |>
+  select(scenario_id, airport, year, statutory_tax_rate,
+         required_pre_tax_margin, required_revenue_m)
+sensitivity_base <- finance_rows |>
+  left_join(profit15, by = c('scenario_id','airport','year')) |>
+  mutate(
+    operating_cost_base_m = revenue_m - ebitda_m - ground_rent_m,
+    target_pre_tax_m = required_pre_tax_margin * revenue_m,
+    baseline_15_m = pmax(0, target_pre_tax_m -
+      purchase_adjusted_pre_tax_income_m) /
+      (1 - required_pre_tax_margin),
+    conversion_80_m = pmax(0, target_pre_tax_m -
+      purchase_adjusted_pre_tax_income_m) /
+      (0.80 - required_pre_tax_margin),
+    savings_10_m = 0.10 * operating_cost_base_m,
+    saving_10_m = pmax(0, target_pre_tax_m -
+      purchase_adjusted_pre_tax_income_m - savings_10_m) /
+      (1 - required_pre_tax_margin),
+    combined_m = pmax(0, target_pre_tax_m -
+      purchase_adjusted_pre_tax_income_m - savings_10_m) /
+      (0.80 - required_pre_tax_margin)
+  )
+if (nrow(sensitivity_base) != 48L ||
+    anyNA(sensitivity_base[c(panel_keys, 'required_pre_tax_margin',
+      'operating_cost_base_m','baseline_15_m','conversion_80_m',
+      'saving_10_m','combined_m')]) ||
+    any(sensitivity_base$operating_cost_base_m < -1e-7) ||
+    any(sensitivity_base$required_pre_tax_margin >= 0.80) ||
+    !is_close(sensitivity_base$baseline_15_m,
+              sensitivity_base$required_revenue_m, tol = 1e-6)) {
+  stop('15% net-margin sensitivity fails coverage, feasibility or baseline check.',
+       call. = FALSE)
+}
+
+sensitivity_headers <- c(
+  conversion_80_m = '15% margin: 80% conversion',
+  saving_10_m = '15% margin: 10% cost saving',
+  combined_m = '15% margin: combined'
+)
+sensitivity_values <- sensitivity_base |>
+  mutate(across(all_of(names(sensitivity_headers)),
+                ~ .x * factor_2025)) |>
+  select(all_of(panel_keys), all_of(names(sensitivity_headers)),
+         passengers)
+sensitivity_amounts <- sensitivity_values |>
+  select(-passengers)
+sensitivity_per_pax <- sensitivity_values |>
+  mutate(across(all_of(names(sensitivity_headers)),
+                ~ .x * 1e6 / passengers)) |>
+  select(-passengers)
+names(sensitivity_amounts)[-(1:3)] <- unname(sensitivity_headers)
+names(sensitivity_per_pax)[-(1:3)] <- unname(sensitivity_headers)
+
+# Audit the baseline 15%-margin requirement against the exact published
+# inflation-adjusted acquisition comparison export.
+published_15 <- long_panel |>
+  filter(variable == 'cf_additional_revenue_net_15pct') |>
+  select(all_of(panel_keys),
+         baseline_amount_m = amount_cad_2025_m)
+baseline_check <- sensitivity_base |>
+  left_join(published_15, by = panel_keys)
+if (nrow(baseline_check) != 48L || anyNA(baseline_check$baseline_amount_m) ||
+    !is_close(baseline_check$baseline_15_m *
+                baseline_check$factor_2025,
+              baseline_check$baseline_amount_m)) {
+  stop('Sensitivity baseline does not reconcile to 15% margin export.',
+       call. = FALSE)
+}
+
+make_panel <- function(value_col, sensitivity) {
+  flows <- long_panel |>
+    select(all_of(panel_keys), variable, all_of(value_col)) |>
+    pivot_wider(names_from = variable, values_from = all_of(value_col))
+  panel <- bridge |>
+    left_join(flows, by = panel_keys) |>
+    left_join(sensitivity, by = panel_keys) |>
+    arrange(airport, factor(period_label,
+      levels = c('2023','2024','2025','Pooled 2023–25')),
+      factor(scenario, levels = scenario_names)) |>
+    select(all_of(panel_keys), all_of(unname(bridge_headers)),
+           all_of(names(metric_names)), all_of(unname(sensitivity_headers)))
+  if (nrow(panel) != 48L || anyNA(panel) ||
+      anyDuplicated(panel[panel_keys])) {
+    stop('Incomplete joined panel: ', value_col, call. = FALSE)
+  }
+  names(panel)[match(names(metric_names), names(panel))] <-
+    unname(metric_names)
+  names(panel)[1:3] <- c('Airport','Period','Scenario')
+  panel
+}
+panel_amounts <- make_panel('amount_cad_2025_m', sensitivity_amounts)
+panel_per_pax <- make_panel('per_passenger_cad_2025', sensitivity_per_pax)
+stopifnot(identical(panel_amounts[1:3], panel_per_pax[1:3]))
+
+readr::write_csv(panel_amounts,
+  file.path(out_dir, 'acquisition_presentation_amounts.csv'))
+readr::write_csv(panel_per_pax,
+  file.path(out_dir, 'acquisition_presentation_per_passenger.csv'))
+
+# ---- 15. TWO SIMPLE PLOTS | 2025 PURCHASE, NO DEMAND MODEL ------------
 plot_data <- comparison_annual |>
   filter(year == 2025L, airport %in% can_airports) |>
   mutate(scenario = factor(scenario,
