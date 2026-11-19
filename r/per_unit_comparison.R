@@ -1,44 +1,25 @@
-# Canada–Australia airport financial yields (V10, 2026-11-04)
-# ------------------------------------------------------------
-# Long-run REVENUE + PASSENGER comparisons: 2015–2025.
-# Detailed COST/EBITDA and profitability comparisons: 2023–2025.
+# Canada–Australia airport financial comparisons | 2015–2025
 #
-# CANADA: 2015–22: combined audited-source extraction (CAD $000, nominal).
-#         2023–25: 'Big 4 long' (CAD millions, nominal).
-#         Revenue comparisons INCLUDE airport improvement fees (AIF).
-# AUSTRALIA: ACCC supplementary financials (ALREADY constant FY2024–25 AUD
-#            millions) and ACCC passengers; regulatory accounts are nominal.
-# PRICE BASE: 2025 CAD. AU supplementary values use fixed 2025 AUD/CAD FX.
-# YEARS: Canada calendar years; Australia fiscal years ending 30 June.
+# Compares aeronautical revenue per passenger over 2015–2025 and detailed
+# revenue, operating costs, and profitability over 2023–2025.
 #
-# MAIN CALCULATIONS:
-# * Annual real aeronautical revenue per passenger (2015–25).
-# * Annual (2023–25) and pooled (2023–25) revenue, operating expense, EBITDA,
-#   EBIT and net-income comparisons, in 2025 CAD millions and CAD/passenger.
-# * Pooled margins are ratios of inflation-adjusted sums, not mean annual rates.
-# MAIN OUTPUTS (output/airport_comparison/):
-# * aero_revenue_growth_2015_2025.csv — required by the counterfactual script.
-# * airport_revenue_expense_profit_comparison_23_25.xlsx — four worksheets:
-#   annual/pooled by per-passenger/absolute values.
-# * comparison_{annual,pooled}_{pp,absolute}_2023_2025.csv — same four
-#   comparison tables as standalone CSVs for inspection and analysis.
-# Intermediate source audits and reconciliations remain in memory. The ABS CPI
-# cache is maintained separately in data/australia/ to avoid repeated downloads.
-
-# Prerequisites: ACCC supplemental parser, regulatory EBITDA extraction and verified SCACH inputs.
-# Packages: tidyverse, here, janitor, cansim, readxl, readabs, openxlsx.
+# Canadian amounts come from airport annual reports. Australian revenue
+# comes from the ACCC supplementary database, with regulatory accounts used
+# for detailed costs and profitability. Sydney's below-operating results
+# use SCACH consolidated statements.
 #
-# IMPORTANT SOURCE CAVEATS:
-# * YYZ 2015 AIF gross-up estimated from a 4% airline collection fee. Original
-#   2015 AIF stays unchanged in the source workbook; derived adjustment is
-#   flagged in the historical revenue series.
-# * Missing historical Canadian revenue observations remain NA, never zero
-#   (including YYC 2015 if not yet filled in the source workbook).
-# * Different fiscal-year conventions mean 2020 shocks are not simultaneous.
-# * ACCC supplementary revenues are NEVER deflated a second time.
-# * SCACH below-operating income is calendar-year, whereas ACCC operations
-#   are June-ending fiscal-year; never reconstruct a hybrid income statement.
-# * Accounting income-tax EXPENSE is not tax payable or cash tax paid.
+# Monetary comparisons are in 2025 CAD. Canadian amounts are adjusted using
+# Canadian CPI; ACCC supplementary amounts are already in 2024–25 AUD.
+# Australian amounts use the fixed 2025 CAD/AUD rate. Canada is reported by
+# calendar year and Australia by June-ending financial year.
+#
+# Outputs: annual aeronautical revenue growth, annual and pooled financial
+# comparison CSVs, source provenance, and a reusable financial audit RDS.
+# The separate workbook script assembles the final Excel workbook.
+#
+# Source notes: YYZ's 2015 AIF gross-up uses an estimated collection fee;
+# missing historical values remain missing. Sydney uses ACCC operating
+# results and SCACH calendar-year results below operating profit.
 
 suppressPackageStartupMessages({
   library(tidyverse)
@@ -49,7 +30,9 @@ suppressPackageStartupMessages({
   library(readabs)
 })
 
-# SETTINGS ----------------------------------------------------------------
+# ============================================================================
+# 1. CONFIGURATION AND SOURCE FILES
+# ============================================================================
 base_year       <- 2025L
 start_year      <- 2015L
 long_years      <- start_year:base_year
@@ -60,9 +43,9 @@ cad_per_aud_2025 <- 0.9009 # Bank of Canada, 2025 annual average
 out_dir <- here('output', 'airport_comparison')
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-# Avoid re-fetching ABS CPI unless explicitly requested.
+# Use the cached ABS CPI series unless a refresh is requested.
 refresh_abs_cpi <- FALSE
-# Historical Toronto collection fee estimate for 2015 only (not a verified rate).
+# Estimated airline collection fee for YYZ's 2015 AIF revenue.
 assumed_yyz_2015_collection_fee <- 0.04
 
 assert_unique <- function(data, cols, label) {
@@ -74,14 +57,19 @@ assert_unique <- function(data, cols, label) {
   invisible(data)
 }
 
-# SOURCES -----------------------------------------------------------------
+# 1.1 Input paths
+# ----------------------------------------------------------------
 can_recent_path <- here('output', 'big4_long.csv')
 can_historical_path <- here('data', 'canada', 'operator_reports',
                             'canadian_big4_aeronautical_revenue_2015_2022.xlsx')
 aus_fin_path <- here('output', 'accc_airport_financial_analysis_2007_2025.xlsx')
 aus_pass_path <- here('data', 'australia', 'accc_airport_passengers_2007_2025.csv')
 
-# CANADIAN PASSENGER TRAFFIC ----------------------------------------------
+# ============================================================================
+# 2. PASSENGER TRAFFIC AND PRICE ADJUSTMENTS
+# ============================================================================
+# 2.1 Canadian passenger counts
+# ----------------------------------------------------------------
 ports <- tribble(
   ~geo, ~airport,
   'Calgary International, Alberta', 'YYC',
@@ -107,7 +95,8 @@ if (nrow(pass_df) != 4L * length(long_years) ||
   stop("Incomplete passenger panel for Canada's Big 4, 2015–2025.")
 }
 
-# CANADIAN CPI: annual average, original index level; convert to 2025 CAD.
+# 2.2 Canadian CPI (2025 price base)
+# ----------------------------------------------------------------
 can_cpi <- cansim::get_cansim('18-10-0005-01') |>
   janitor::clean_names() |>
   filter(geo == 'Canada', products_and_product_groups == 'All-items') |>
@@ -123,7 +112,8 @@ can_cpi <- can_cpi |>
   mutate(cpi_2025 = 100 * cpi_original / cpi_original[year == base_year],
          adjustment_to_2025 = 100 / cpi_2025)
 
-# AUSTRALIAN CPI ----------------------------------------------------------
+# 2.3 Australian fiscal-year CPI
+# ----------------------------------------------------------------
 # ABS quarterly All-groups CPI, weighted average of eight capitals.
 # Official ABS time-series ID A2325846C (historical quarterly data).
 # Compute each financial-year CPI as the average of Sep, Dec, Mar and Jun
@@ -173,9 +163,12 @@ if (!all(c('year', 'cpi_original', 'adjustment_to_2025') %in% names(aus_cpi)) ||
 }
 assert_unique(aus_cpi, 'year', 'Australian FY CPI')
 
-# CANADIAN FINANCES: historical revenue, 2015–2022 ------------------------
-# Read by POSITION to avoid complications from the original '$000' headers.
-# The source workbook preserves the original reported and gross-up columns.
+# ============================================================================
+# 3. CANADIAN REVENUE AND FINANCIAL DATA
+# ============================================================================
+# 3.1 Historical revenue, 2015–2022
+# ----------------------------------------------------------------
+# Read historical revenue using column positions in the source workbook.
 hist <- readxl::read_excel(can_historical_path, sheet = 'Main 2015-2022')
 names(hist)[1:7] <- c('airport', 'year', 'aero_k', 'aif_reported_k',
                       'grossup_k', 'total_reported_k', 'total_comparable_k')
@@ -205,7 +198,7 @@ hist <- hist |>
 assert_unique(hist, c('airport', 'year'), 'Canadian 2015–2022 source workbook')
 if (nrow(hist) != 32L) stop('Expected 32 Canadian historical airport-year rows.')
 
-# Check calculated comparable totals against all SOURCE-VERIFIED entries.
+# Check comparable aeronautical revenue against verified historical totals.
 check_hist <- hist |>
   filter(!is.na(total_comparable_k), !is.na(aero_plus_aif_m)) |>
   mutate(difference_k = abs(1e3 * aero_plus_aif_m - total_comparable_k))
@@ -235,7 +228,8 @@ hist_long <- bind_rows(
                       value_m = aif_gross_m, grossup_method)
 )
 
-# Canadian financial detail, 2023–2025 -----------------------------------
+# 3.2 Recent annual reports, 2023–2025
+# ----------------------------------------------------------------
 can_lookup <- c(
   'Total Revenues' = 'total_revenue',
   'Aeronautical Revenues' = 'aero_revenue',
@@ -279,7 +273,7 @@ can_recent <- read_csv(can_recent_path) |>
   ) |>
   filter(year %in% recent_years)
 
-# There must be exactly one source value per airport-year-variable.
+# Require one Canadian source observation per airport, year and measure.
 can_source <- bind_rows(
   hist_long,
   can_recent |> select(airport, year, item, category, variable,
@@ -289,7 +283,7 @@ can_source <- bind_rows(
 assert_unique(can_source, c('airport', 'year', 'variable'),
               'Canadian mapped source categories')
 
-# Join revenue, passenger, and CPI data, then calculate per passenger cad 2025 rates
+# Join Canadian revenue, passenger counts and CPI to calculate real values.
 can_long <- can_source |>
   left_join(pass_df, by = c('airport', 'year')) |>
   left_join(can_cpi |> select(year, adjustment_to_2025), by = 'year') |>
@@ -297,8 +291,7 @@ can_long <- can_source |>
          amount_cad_2025_m = value_m * adjustment_to_2025,
          per_passenger_cad_2025 = amount_cad_2025_m * 1e6 / passengers)
 
-# AIF-inclusive measure is ADDITIVE ONLY for this distinct derived category.
-# It must not be added to total revenue again.
+# Calculate aeronautical revenue including airport improvement fees (AIF).
 can_aif <- can_long |>
   filter(variable %in% c('aero_revenue', 'aif_revenue')) |>
   group_by(airport, year) |>
@@ -335,15 +328,20 @@ can_values <- bind_rows(
                     per_passenger_cad_2025, grossup_method)
 )
 
-# AUSTRALIAN PASSENGERS ---------------------------------------------------
-# The supplementary parser exports passenger totals as counts (not thousands).
+# ============================================================================
+# 4. AUSTRALIAN REVENUE AND PASSENGER DATA
+# ============================================================================
+# 4.1 ACCC passenger counts
+# ----------------------------------------------------------------
+# Passenger observations are individual passengers.
 aus_pass <- readr::read_csv(aus_pass_path, show_col_types = FALSE) |>
   select(airport, year, passengers) |>
   mutate(year = as.character(year), passengers = as.numeric(passengers)) |>
   distinct()
 assert_unique(aus_pass, c('airport', 'year'), 'Australian passenger source')
 
-# AUSTRALIAN FINANCES (already in REAL 2024–25 AUD) ------------------------
+# 4.2 ACCC supplementary financial data
+# ----------------------------------------------------------------
 aus_fin <- read_excel(aus_fin_path, sheet = 'financial') |>
   mutate(year = as.character(year))
 mandatory_aus <- c('total_revenue', 'aero_revenue', 'parking_revenue',
@@ -352,8 +350,7 @@ if (!all(mandatory_aus %in% names(aus_fin))) {
   stop('ACCC supplementary financial export is missing: ',
        paste(setdiff(mandatory_aus, names(aus_fin)), collapse = ', '))
 }
-# Older supplementary parsers lack these variables. Do NOT substitute zero or
-# incorrectly label the old 'other' aggregate as excluding landside.
+# Check whether supplementary data distinguish landside revenue.
 has_landside_detail <- all(c('landside_revenue',
                              'parking_transport_revenue') %in% names(aus_fin))
 if (!has_landside_detail) {
@@ -398,7 +395,9 @@ if (anyNA(aus_long$passengers) || any(aus_long$passengers <= 0)) {
   stop('Missing Australian passengers. Check year joins and units.')
 }
 
-# LONGITUDINAL REVENUE COMPARISON -----------------------------------------
+# ============================================================================
+# 5. LONG-RUN AERONAUTICAL REVENUE COMPARISON
+# ============================================================================
 compare_vars <- c('total_revenue', 'aero_revenue', 'aero_plus_aif',
                   'aif_revenue', 'commercial_revenue',
                   'parking_transport_revenue', 'parking_revenue',
@@ -413,15 +412,15 @@ annual_all <- bind_rows(can_values, aus_long) |>
 assert_unique(annual_all, c('country', 'airport', 'year', 'variable'),
               'cross-country annual revenue')
 
-# The Australian aeronautical series must cover all airports/years.
+# Require complete Australian aeronautical revenue coverage.
 if (nrow(annual_all |> filter(country == 'Australia',
                               variable == 'aero_revenue')) !=
     4L * length(long_years)) {
   stop('Incomplete Australian 2015–2025 aeronautical-revenue panel.')
 }
 
-# A 2015 index for each airport's aeronautical revenues per passenger.
-# Main Canada variable = aero_plus_aif; main Australia = aero_revenue.
+# Index aeronautical revenue per passenger to 2015 for each airport.
+# Canadian revenue includes AIF; Australian aeronautical revenue is reported total.
 aero_series <- annual_all |>
   filter((country == 'Canada' & variable == 'aero_plus_aif') |
            (country == 'Australia' & variable == 'aero_revenue')) |>
@@ -433,7 +432,7 @@ aero_series <- annual_all |>
          real_pp_change_pct_2015 = real_pp_index_2015 - 100) |>
   ungroup()
 
-# Endpoint comparisons require both 2015 and 2025 observations.
+# Calculate growth where both endpoint years are available.
 growth_summary <- aero_series |>
   group_by(country, airport) |>
   summarise(
@@ -445,13 +444,17 @@ growth_summary <- aero_series |>
     .groups = 'drop'
   )
 
-# Recent annual revenue figures feed the combined financial comparison.
+# Retain 2023–2025 revenue observations for the detailed comparison.
 annual <- annual_all |>
   filter(year %in% recent_years) |>
   select(country, airport, year, period, variable,
          amount_cad_2025_m, passengers, per_passenger_cad_2025)
 
-# Detailed cost comparison: 2023–2025 ------------------------------------
+# ============================================================================
+# 6. OPERATING COSTS AND PROFITABILITY, 2023–2025
+# ============================================================================
+# 6.1 Operating expense groups
+# ----------------------------------------------------------------
 reg_ebitda_path <- here('output', 'accc_airport_ebitda_by_activity_2022_2025.csv')
 reg_exp_groups_path <- here('output', 'accc_airport_expenditure_groups_2022_2025.csv')
 reg_ebitda <- readr::read_csv(reg_ebitda_path, show_col_types = FALSE) |>
@@ -469,7 +472,7 @@ if (nrow(reg_total) != 4L * length(recent_years) ||
 reg_exp_groups <- readr::read_csv(reg_exp_groups_path, show_col_types = FALSE) |>
   filter(year %in% recent_years)
 
-# Adjust AUS data to 2025 CAD, then calculate per-passenger
+# Convert Australian expense groups to 2025 CAD and per-passenger values.
 aus_reg_costs <- function(data, name_col) {
   data |>
     rename(variable = all_of(name_col), value_m = value_aud_m) |>
@@ -527,10 +530,10 @@ assert_unique(cost_groups_annual,
               c('country', 'airport', 'year', 'variable'),
               'harmonized cost categories')
 
-# Operating-to-net profitability comparison, 2023–2025 ---------------
-# Sydney retains ACCC operating figures; SCACH calendar-year consolidated
-# financing, pre-tax profit, tax, and net income are substituted below ONLY.
-# No ACCC source cells are changed or overwritten.
+# 6.2 Operating profit and net-income source data
+# ----------------------------------------------------------------
+# Use ACCC operating results for Sydney and SCACH consolidated results
+# for financing, pretax income, tax, and net income.
 required_reg <- c('ebitda', 'operating_profit', 'depreciation_amortisation',
                   'revenue', 'interest_financing_costs', 'profit_before_tax',
                   'income_tax_expense', 'net_profit_after_tax', 'abnormal_items',
@@ -540,7 +543,7 @@ if (!all(required_reg %in% names(reg_total))) {
        paste(setdiff(required_reg, names(reg_total)), collapse = ', '))
 }
 
-# Use the verified, existing SCACH CSV. No additional reports are downloaded.
+# Read verified SCACH income-statement inputs.
 scach_path <- here('data', 'australia', 'regulatory_accounts', 'scach_income_verified_inputs_template.csv')
 
 scach <- readr::read_csv(scach_path, show_col_types = FALSE) |>
@@ -566,8 +569,8 @@ if (any(abs(scach$ebitda - scach$depreciation - scach$amortisation -
   stop('SCACH consolidated income statement failed reconciliation.')
 }
 
-# Swap fair-value gains are positive in the CSV; losses are negative.
-# Net costs = finance costs - income - swap change + one-off redemption loss.
+# Calculate SCACH net finance costs from costs, finance income,
+# swap fair-value movements, and early-redemption losses.
 if (any(abs(scach$finance_costs - scach$finance_income -
             scach$swap_fair_value_change + scach$rps_early_redemption_loss -
             scach$net_finance_costs) > 0.15)) {
@@ -579,11 +582,10 @@ scach_join <- scach |>
          reporting_period) |>
   rename_with(~ paste0('scach_', .x), -year)
 
-# Canadian source categories were parsed into can_long above.
-# Canadian airport authorities are treated as having zero income-tax expense;
-# pretax profit therefore equals reported net income in this comparison.
-# Canadian operating EBIT deducts both D&A and separately identified asset
-# impairment from EBITDA; the impairment amount remains separately available.
+# For Canadian airport authorities, use net income as pretax income and
+# zero income-tax expense. EBIT deducts D&A and identified impairments.
+# 6.3 Standardize Canadian financial measures
+# ----------------------------------------------------------------
 can_fin_vars <- c('total_revenue', 'ebitda_can',
                   'depreciation_amortisation', 'asset_impairment',
                   'net_financing_costs', 'net_income_can',
@@ -620,6 +622,8 @@ can_fin <- tidyr::expand_grid(airport = ports$airport, year = recent_years) |>
     net_income_definition = 'Reported Canadian annual-report net income',
     scach_source_url = NA_character_)
 
+# 6.4 Standardize Australian financial measures
+# ----------------------------------------------------------------
 aus_financial <- reg_total |>
   left_join(aus_pass |>
               transmute(airport, year = fy_end(year), passengers),
@@ -629,7 +633,7 @@ aus_financial <- reg_total |>
     country = 'Australia', airport, year, period = fyear, passengers,
     adjustment_to_2025, fx_cad_per_unit = cad_per_aud_2025,
     ebitda,
-    # ACCC operating profit is AFTER D&A, so no second subtraction.
+    # ACCC operating profit already includes D&A expense.
     ebit = operating_profit, depreciation_amortisation,
     asset_impairment = NA_real_, abnormal_items,
     reported_ebit = ebit_reported,
@@ -670,6 +674,8 @@ aus_financial <- reg_total |>
     scach_source_url = if_else(airport == 'SYD', scach_source_url,
                                NA_character_))
 
+# 6.5 Combine and validate the eight-airport financial panel
+# ----------------------------------------------------------------
 financial_source_annual <- bind_rows(can_fin, aus_financial) |>
   arrange(country, airport, year)
 
@@ -688,10 +694,7 @@ if (any(abs(financial_source_annual$ebitda -
             financial_source_annual$ebit) > 0.03, na.rm = TRUE)) {
   stop('Operating EBIT reconciliation failed.')
 }
-# The reported finance costs and tax charge belong to the audited income
-# statements and must not be added to operating expenditure. The bridge
-# below uses PBT and tax solely to VALIDATE net income, not to reconstruct it.
-# Test tax bridge only where the accounting source supplies both amounts.
+# Check reported net income against pretax income less accounting tax expense.
 tax_bridge <- financial_source_annual |>
   filter(!is.na(profit_before_tax),
          !is.na(accounting_income_tax_expense), !is.na(net_income)) |>
@@ -700,12 +703,14 @@ if (any(abs(tax_bridge$residual) > 0.05)) {
   print(tax_bridge |> filter(abs(residual) > 0.05))
   stop('Reported net profit does not reconcile to pretax profit less tax.')
 }
-# Sydney's original ACCC source values remain available in reg_total;
-# SCACH substitute inputs are retained in scach and validated above.
-# Convert financial items using the existing annual CPI factors
-# and fixed 2025 CAD/AUD exchange rate, with the same passenger joins.
-# SCACH calendar-year data are indexed to their matching year number using
-# the existing Australian FY CPI index: no interpolation or hybrid P&L.
+# Retain original ACCC and SCACH source tables for auditing.
+# ============================================================================
+# 7. ANNUAL FINANCIAL COMPARISON TABLES
+# ============================================================================
+# 7.1 Convert financial amounts to 2025 CAD
+# ----------------------------------------------------------------
+# Apply the annual price adjustments and fixed 2025 AUD/CAD rate.
+# Sydney's calendar-year amounts use the corresponding Australian FY CPI factor.
 financial_vars <- c('ebitda', 'ebit', 'interest_financing_costs',
                     'net_financing_costs', 'finance_costs_gross',
                     'finance_income', 'one_off_financing_loss',
@@ -724,9 +729,10 @@ financial_amounts_annual <- financial_source_annual |>
 assert_unique(financial_amounts_annual,
               c('country', 'airport', 'year', 'variable'), 'new financial values')
 
-# Wide tables preserve the same comparable aeronautical-revenue definition: total aero includes
-# Canadian AIF; Australian 'aero_revenue' is already the comparable total.
-# AIF and its derived aero total are NOT summed into total revenue twice.
+# Align aeronautical revenue definitions: Canadian airport revenue including
+# AIF corresponds to Australian total aeronautical revenue.
+# 7.2 Combine annual revenue, cost and profit measures
+# ----------------------------------------------------------------
 revenue_comparison_annual <- annual |>
   mutate(variable = case_when(
     country == 'Canada' & variable == 'aero_revenue' ~ 'aero_excl_aif',
@@ -737,7 +743,7 @@ revenue_comparison_annual <- annual |>
   transmute(country, airport, year, variable, amount_cad_2025_m)
 
 cost_comparison_annual <- cost_groups_annual |>
-  # Financing comes from the audited source join above, not a second copy.
+  # Use financing costs from the financial source panel.
   filter(!variable %in% c('net_financing_costs', 'pension_remeasurement')) |>
   transmute(country, airport, year, variable, amount_cad_2025_m)
 
@@ -753,7 +759,10 @@ assert_unique(comparison_annual_long,
               c('country', 'airport', 'year', 'variable'),
               'merged revenues/costs/financial comparison')
 
-# Reconcile the pre-existing cost-group D&A to the audited financial bridge.
+# 7.3 Check depreciation and amortization
+# ----------------------------------------------------------------
+# Compare D&A extracted for operating costs with D&A used in the EBIT bridge.
+# The two amounts must match for all 24 airport-years (tolerance: 0.03 million).
 da_cost <- cost_groups_annual |>
   filter(variable == 'depreciation_amortisation') |>
   select(country, airport, year, cost_da_m = value_m)
@@ -768,6 +777,8 @@ if (nrow(da_check) != 8L * length(recent_years) ||
     any(abs(da_check$cost_da_m - da_check$financial_da_m) > 0.03,
         na.rm = TRUE)) stop('D&A extraction and financial bridge disagree.')
 
+# 7.4 Define variables and passenger pools
+# ----------------------------------------------------------------
 comparison_vars <- c(
   'total_revenue', 'total_aero', 'aero_excl_aif', 'aif_revenue',
   'commercial_revenue', 'parking_transport_revenue', 'parking_revenue',
@@ -809,8 +820,9 @@ if (nrow(passenger_pools) != 8L ||
   stop('Eight complete airport passenger pools are required.')
 }
 
-# Include explicit NA cells for any missing annual measure (no partial
-# three-year pooling, and no sum(..., na.rm=TRUE) masquerading as complete).
+# 7.5 Pool three years of complete financial observations
+# ----------------------------------------------------------------
+# Pool monetary amounts only when all three annual observations exist.
 comparison_pooled_long <- tidyr::expand_grid(
   airport_keys, year = recent_years,
   variable = setdiff(comparison_vars,
@@ -832,7 +844,9 @@ comparison_pooled_long <- tidyr::expand_grid(
          value_absolute = amount_cad_2025_m,
          value_pp = 1e6 * amount_cad_2025_m / pooled_passengers)
 
-# Ratios of pooled, annual-CPI-adjusted sums (never averages of ratios).
+# 7.6 Annual and three-year pooled profitability margins
+# ----------------------------------------------------------------
+# Pooled margins divide pooled profit by pooled revenue.
 financial_margin_annual <- financial_source_annual |>
   transmute(country, airport, year,
             ebitda_real = ebitda * adjustment_to_2025 * fx_cad_per_unit,
@@ -879,8 +893,10 @@ comparison_pooled_long <- bind_rows(comparison_pooled_long,
 assert_unique(comparison_pooled_long,
               c('country', 'airport', 'variable'), 'pooled comparison')
 
-# Annual equivalents use each year's passenger count and year-specific
-# profitability denominators; margins are percentages in BOTH wide tables.
+# Use annual passenger counts for annual per-passenger comparisons;
+# profitability margins are percentages in both output formats.
+# 7.7 Build the annual per-passenger and absolute tables
+# ----------------------------------------------------------------
 margin_vars <- c('ebitda_margin_pct', 'ebit_margin_pct',
                  'net_profit_margin_pct')
 
@@ -948,7 +964,9 @@ if (nrow(comparison_annual_pp_wide) != 8L * length(recent_years) ||
                names(comparison_annual_absolute_wide))) {
   stop('Annual wide tables have mismatched keys or variable ordering.')
 }
-# The annual and absolute/per-passenger monetary values must reconcile.
+# Verify annual absolute values equal per-passenger values times passengers.
+# 8.1 Check per-passenger and absolute values
+# ----------------------------------------------------------------
 annual_check <- comparison_annual_pp_wide |>
   select(country, airport, year) |>
   left_join(financial_source_annual |>
@@ -980,7 +998,7 @@ if (nrow(comparison_pp_wide) != 8L ||
   stop('Wide companion tables have mismatched airports or variable ordering.')
 }
 
-# Every monetary wide cell must come from the SAME pooled sum in both tables.
+# Check pooled absolute and per-passenger tables against the pooled sums.
 for (nm in setdiff(comparison_vars,
                    c('ebitda_margin_pct', 'ebit_margin_pct',
                      'net_profit_margin_pct'))) {
@@ -1003,7 +1021,12 @@ for (nm in c('ebitda_margin_pct', 'ebit_margin_pct',
   }
 }
 
-# Final presentation tables: same measures, two time aggregations and units.
+# ============================================================================
+# 8. VALIDATE AND PREPARE COMPARISON OUTPUTS
+# ============================================================================
+# Select the measures for annual and pooled output tables.
+# 8.2 Select output variables
+# ----------------------------------------------------------------
 keep_vars <- c(
   'total_revenue', 'total_aero', 'aero_excl_aif', 'aif_revenue',
   'commercial_revenue', 'parking_transport_revenue',
@@ -1026,6 +1049,8 @@ comparison_annual_pp_final <- comparison_annual_pp_wide |>
 comparison_annual_absolute_final <- comparison_annual_absolute_wide |>
   select(country, airport, year, all_of(keep_vars))
 
+# 8.3 Write annual and pooled CSV outputs
+# ----------------------------------------------------------------
 export_fin <- list(
   'Pooled per-passenger' = comparison_pooled_pp_final,
   'Pooled absolute' = comparison_pooled_absolute_final,
@@ -1055,11 +1080,14 @@ message('Sydney: SCACH Jan–Dec 2023–2025 financing/net results; ACCC June FY
 print(growth_summary |> arrange(country, airport), n = Inf)
 
 
-# COMPARISON SOURCE PROVENANCE ------------------------------------------
-# Source references are keyed by airport, year and comparison variable.
-# Annual values have one source URL; pooled values retain three annual URLs.
+# ============================================================================
+# 9. DOCUMENT THE SOURCE OF EACH COMPARISON MEASURE
+# ============================================================================
+# Track the source URL for each airport, year and comparison measure.
 
 # Canadian annual reports
+# 9.1 Canadian annual-report references
+# ----------------------------------------------------------------
 can_sources <- readr::read_csv(
   can_recent_path, show_col_types = FALSE
 ) |>
@@ -1078,6 +1106,8 @@ assert_unique(can_sources, c('airport', 'year'),
               'Canadian source URLs')
 
 # ACCC supplementary financial data
+# 9.2 ACCC supplementary data references
+# ----------------------------------------------------------------
 sup_sources <- readr::read_csv(
   here('output', 'accc_financial_provenance.csv'),
   show_col_types = FALSE
@@ -1095,7 +1125,7 @@ assert_unique(
   'ACCC supplementary provenance'
 )
 
-# Crosswalk: comparison labels to supplementary source variables.
+# Match comparison measures to ACCC supplementary source variables.
 sup_map <- tribble(
   ~variable,                    ~source_variable,
   'total_revenue',              'total_revenue',
@@ -1109,6 +1139,8 @@ sup_sources <- sup_sources |>
   select(airport, year, variable, sup_url, sup_sheet)
 
 # ACCC regulatory accounts
+# 9.3 ACCC regulatory-account references
+# ----------------------------------------------------------------
 reg_sources <- reg_total |>
   transmute(
     airport, year,
@@ -1120,13 +1152,15 @@ assert_unique(reg_sources, c('airport', 'year'),
               'ACCC regulatory provenance')
 
 # SCACH consolidated income statements (Sydney only)
+# 9.4 Sydney consolidated income-statement references
+# ----------------------------------------------------------------
 scach_sources <- scach |>
   transmute(
     year,
     scach_url = source_url
   )
 
-# Measures taken from SCACH rather than the ACCC regulatory accounts.
+# Sydney measures sourced from SCACH.
 scach_vars <- c(
   'interest_financing_costs',
   'profit_before_tax',
@@ -1135,7 +1169,9 @@ scach_vars <- c(
   'net_profit_margin_pct'
 )
 
-# Build provenance for the complete annual comparison.
+# Attach a source URL and worksheet to each annual comparison measure.
+# 9.5 Match each annual measure to its source
+# ----------------------------------------------------------------
 provenance_annual <- comparison_annual_complete |>
   filter(variable %in% keep_vars) |>
   transmute(
@@ -1166,7 +1202,7 @@ provenance_annual <- comparison_annual_complete |>
       country == 'Australia' ~ reg_sheet,
       TRUE ~ NA_character_
     ),
-    # No link for an unavailable financial measure.
+    # Leave source references blank for unavailable measures.
     source_url = if_else(has_value, source_url, NA_character_),
     source_sheet = if_else(has_value, source_sheet, NA_character_)
   ) |>
@@ -1192,6 +1228,9 @@ readr::write_csv(
   file.path(out_dir, 'comparison_sources_annual_2023_2025.csv')
 )
 
+# ============================================================================
+# 10. SAVE INTERMEDIATE AUDIT DATA
+# ============================================================================
 saveRDS(
   list(
     annual_all = annual_all,
