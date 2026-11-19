@@ -4,9 +4,10 @@
 # reshape_big4_long.R, parse_accc_airports.R,
 # accc_regulatory_ebitda.R, and per_unit_comparison.R.
 #
-# Produces ten observed-finance sheets plus five acquisition sheets in the
-# integrated production workbook (two analysis stages, two formula audits,
-# and acquisition methodology). The initial sheets contain comparisons, calculations,
+# Produces ten observed-finance sheets and seven analytic sheets in the
+# integrated production workbook (selectable profitability bridge, its
+# calculation table, two acquisition presentations, two formula audits,
+# and methodology). The initial sheets contain comparisons, calculations,
 # supporting sources, methodology, reconciliation. Supporting sheets carry
 # descriptive source identifiers, file types and clickable links. The
 # comparison sheets stay wide, source-free, with annual and pooled values.
