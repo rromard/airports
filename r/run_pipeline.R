@@ -1,44 +1,65 @@
-# Airport research pipeline | run from the airports project
-# ----------------------------------------------------------
-# Usual refresh (e.g. after correcting a Canadian source workbook):
+# Airport research pipeline | refreshed control script (2026-11-18)
+# Run from the airports project:
 #   source(here::here('r', 'run_pipeline.R'))
 #
-# The default reruns Canadian/Australian comparisons, the counterfactual,
-# the sensitivity diagnostics, workbook formatting, and all 15 plots.
-# It does NOT re-extract unchanged Australian source files.
-# To rebuild those files too, set rebuild_australian_sources <- TRUE below.
+# Default branch: refresh Canada / Australia comparisons, build the documented
+# financial workbook, run the private-acquisition counterfactual, and append
+# its per-passenger figures to a COPY of the financial comparison workbook.
+# Earlier revenue-growth counterfactual / sensitivity / plotting stages are
+# retained as an OPTIONAL, separate branch (disabled by default).
 #
-# This script orchestrates existing R files. It changes neither their
-# calculations nor the selected gradual_mode in the main counterfactual.
+# This orchestrator does not change the formulas in any component script.
+# Critical: the financial builder's in-memory `wb` is passed into the appender
+# as `comparison_wb`; we do NOT reload the formula-heavy XLSX via loadWorkbook().
 
-# CONFIGURATION -------------------------------------------------------------
-rebuild_australian_sources <- FALSE  # TRUE only after changing source data/parser
-run_sensitivity          <- TRUE
-format_excel             <- TRUE
-run_plots                <- TRUE
+# ---- CONFIGURATION --------------------------------------------------------
+rebuild_australian_sources <- FALSE
+refresh_canadian_sources  <- TRUE
+run_financial_comparison <- TRUE
+run_acquisition_model    <- TRUE
+append_acquisition       <- TRUE
 
-# PROJECT ROOT --------------------------------------------------------------
+# Older revenue-growth counterfactual branch, unrelated to private acquisition.
+run_legacy_counterfactual <- FALSE
+run_legacy_sensitivity    <- TRUE
+format_legacy_excel      <- TRUE
+run_legacy_plots         <- TRUE
+
+# ---- PROJECT ROOT ---------------------------------------------------------
 if (!requireNamespace('here', quietly = TRUE)) {
-  stop("Missing R package 'here'. Restore project dependencies first.")
+  stop("Missing R package 'here'.", call. = FALSE)
 }
 root <- here::here()
 if (!file.exists(file.path(root, 'airports.Rproj')) ||
     !file.exists(file.path(root, 'r', 'per_unit_comparison.R'))) {
-  stop('Run from the airports project root (the directory containing airports.Rproj).\n',
-       'Currently detected root: ', root)
+  stop('Run from the airports project root (containing airports.Rproj).\n',
+       'Detected root: ', root, call. = FALSE)
 }
 
-# Each component runs in a fresh environment to avoid collisions between
-# variables such as `source`, `summary`, `years`, and `out_dir`.
-run_stage <- function(label, script, expected_files = character()) {
+if (append_acquisition && !run_acquisition_model) {
+  stop('append_acquisition = TRUE requires run_acquisition_model = TRUE.',
+       call. = FALSE)
+}
+if (run_acquisition_model && !run_financial_comparison) {
+  stop('The acquisition model needs the documented comparison workbook; ',
+       'set run_financial_comparison = TRUE.', call. = FALSE)
+}
+
+# Run each stage in its own environment. Pass objects in explicitly when a
+# downstream stage needs them, without leaking or overwriting another stage's
+# variables (notably `wb`, `years`, `source` and `out_dir`).
+run_stage <- function(label, script, expected_files = character(),
+                      bindings = list(), return_object = NULL) {
   path <- file.path(root, 'r', script)
   if (!file.exists(path)) {
     stop('Missing pipeline script: ', path, call. = FALSE)
   }
   message('\n', strrep('=', 66L), '\n', label, '\n', strrep('=', 66L))
   started <- Sys.time()
+  stage_env <- new.env(parent = globalenv())
+  if (length(bindings)) list2env(bindings, envir = stage_env)
   tryCatch(
-    base::sys.source(path, envir = new.env(parent = globalenv()), chdir = FALSE),
+    base::sys.source(path, envir = stage_env, chdir = FALSE),
     error = function(e) {
       stop('Pipeline stopped at [', label, '] (', script, '):\n',
            conditionMessage(e), call. = FALSE)
@@ -54,12 +75,15 @@ run_stage <- function(label, script, expected_files = character()) {
   message('Completed ', label, ' in ',
           round(as.numeric(difftime(Sys.time(), started, units = 'secs')), 1),
           ' seconds.')
+  if (is.null(return_object)) return(invisible(NULL))
+  if (!exists(return_object, envir = stage_env, inherits = FALSE)) {
+    stop('Stage [', label, '] did not create `', return_object, '`.',
+         call. = FALSE)
+  }
+  get(return_object, envir = stage_env, inherits = FALSE)
 }
 
-# 1. AUSTRALIAN INPUTS (OPTIONAL) -------------------------------------------
-# These stages are stable and do not need re-running when only the Canadian
-# Big 4 workbook is updated. The long-run parser creates the ACCC workbook
-# and passenger CSV; the regulatory and legacy scripts create their outputs.
+# ---- 1. AUSTRALIAN SOURCE EXTRACTION (OPTIONAL) ---------------------------
 if (rebuild_australian_sources) {
   run_stage('Parse ACCC supplementary data', 'parse_accc_airports.R', c(
     'output/accc_airport_financial_analysis_2007_2025.xlsx',
@@ -83,53 +107,87 @@ if (rebuild_australian_sources) {
   if (length(missing)) {
     stop('Missing prepared Australian input(s):\n  ',
          paste(missing, collapse = '\n  '),
-         '\nSet rebuild_australian_sources <- TRUE if raw source files are present.',
+         '\nSet rebuild_australian_sources = TRUE if raw files are present.',
          call. = FALSE)
   }
 }
 
-# 2. REBUILD RECENT CANADIAN LONG-FORM SOURCE ------------------------------
-# Always generate a CSV from the authoritative 'Big 4' wide worksheet.
-# The Excel workbook is never rewritten.
-run_stage('Refresh Canadian Big 4 long-form source',
-          'reshape_big4_long.R',
-          'output/big4_long.csv')
-
-# 3. REGENERATE COMPARABLE REVENUE AND FINANCIAL INPUTS ----------------------
-# Uses the newly regenerated output/big4_long.csv.
-run_stage('Compare Canadian and Australian airport finances',
-          'per_unit_comparison.R', c(
-            'output/airport_comparison/aero_revenue_growth_2015_2025.csv',
-            'output/airport_comparison/comparison_annual_absolute_2023_2025.csv'
-          ))
-
-# 4. COUNTERFACTUAL (including selected GRADUAL interpolation mode) ---------
-run_stage('Build three main counterfactual scenarios',
-          'airport_revenue_counterfactual.R', c(
-            'output/airport_counterfactual/scenario_growth_paths.csv',
-            'output/airport_counterfactual/actual_growth_canada_australia.csv',
-            'output/airport_counterfactual/counterfactual_annual.csv',
-            'output/airport_counterfactual/counterfactual_summary.csv',
-            'output/airport_counterfactual/airport_counterfactual.xlsx'
-          ))
-
-# 5. OPTIONAL FINAL OUTPUTS -------------------------------------------------
-if (run_sensitivity) {
-  run_stage('Calculate interpolation and timing sensitivities',
-            'airport_counterfactual_sensitivity.R')
+# ---- 2. CANADIAN SOURCE REFRESH ------------------------------------------
+if (refresh_canadian_sources) {
+  run_stage('Refresh Canadian Big 4 long-form source',
+            'reshape_big4_long.R', 'output/big4_long.csv')
+} else if (!file.exists(file.path(root, 'output', 'big4_long.csv'))) {
+  stop('Missing output/big4_long.csv; enable refresh_canadian_sources.',
+       call. = FALSE)
 }
-if (format_excel) {
-  # Some local versions of the main model already call this formatter.
-  # A second formatting pass is safe; it changes Excel cell styles only.
-  run_stage('Format final counterfactual workbook',
-            'format_airport_counterfactual_excel.R',
-            'output/airport_counterfactual/airport_counterfactual.xlsx')
+
+# ---- 3. PER-UNIT AND FINANCIAL COMPARISON ---------------------------------
+if (run_financial_comparison) {
+  run_stage('Compare Canadian and Australian airport finances',
+            'per_unit_comparison.R', c(
+              'output/airport_comparison/aero_revenue_growth_2015_2025.csv',
+              'output/airport_comparison/comparison_annual_absolute_2023_2025.csv',
+              'output/airport_comparison/comparison_annual_pp_2023_2025.csv',
+              'output/airport_comparison/comparison_pooled_pp_2023_2025.csv'
+            ))
+
+  # Capture the ORIGINAL builder object before the acquisition script creates
+  # its own `wb`. The appender requires this retained in-memory workbook.
+  comparison_wb <- run_stage(
+    'Build documented financial comparison workbook',
+    'build_financial_comparison_workbook.R',
+    'output/airport_comparison/airport_financial_comparison_documented_2023_2025.xlsx',
+    return_object = 'wb'
+  )
 }
-if (run_plots) {
-  run_stage('Regenerate counterfactual charts',
-            'airport_counterfactual_plots.R',
-            'output/airport_counterfactual/plots/15_pooled_ebitda_margin_change.png')
+
+# ---- 4. PRIVATE-ACQUISITION COUNTERFACTUAL -------------------------------
+if (run_acquisition_model) {
+  run_stage('Run three-case airport acquisition counterfactual',
+            'airport_acquisition_counterfactual.R', c(
+              'output/airport_purchase_counterfactual/airport_acquisition_counterfactual_audit.xlsx',
+              'output/airport_purchase_counterfactual/acquisition_per_passenger_annual.csv',
+              'output/airport_purchase_counterfactual/acquisition_per_passenger_pooled.csv',
+              'output/airport_purchase_counterfactual/scenario_assumptions.csv'
+            ))
+
+  if (append_acquisition) {
+    run_stage('Add acquisition comparison to production workbook COPY',
+              'append_acquisition_to_comparison_workbook.R',
+              'output/airport_comparison/airport_financial_comparison_with_acquisition_2023_2025.xlsx',
+              bindings = list(comparison_wb = comparison_wb))
+  }
+}
+
+# ---- 5. ORIGINAL REVENUE-GROWTH COUNTERFACTUAL (OPTIONAL) -----------------
+# These scripts are NOT the acquisition-financing analysis. They are retained
+# so earlier growth-path figures can be regenerated when needed.
+if (run_legacy_counterfactual) {
+  run_stage('Build historical revenue-growth counterfactual',
+            'airport_revenue_counterfactual.R', c(
+              'output/airport_counterfactual/scenario_growth_paths.csv',
+              'output/airport_counterfactual/counterfactual_annual.csv',
+              'output/airport_counterfactual/airport_counterfactual.xlsx'
+            ))
+  if (run_legacy_sensitivity) {
+    run_stage('Calculate revenue-growth interpolation sensitivities',
+              'airport_counterfactual_sensitivity.R')
+  }
+  if (format_legacy_excel) {
+    run_stage('Format revenue-growth counterfactual workbook',
+              'format_airport_counterfactual_excel.R',
+              'output/airport_counterfactual/airport_counterfactual.xlsx')
+  }
+  if (run_legacy_plots) {
+    run_stage('Regenerate revenue-growth counterfactual charts',
+              'airport_counterfactual_plots.R',
+              'output/airport_counterfactual/plots/15_pooled_ebitda_margin_change.png')
+  }
 }
 
 message('\nPipeline completed successfully.')
-message('Counterfactual files: ', file.path(root, 'output', 'airport_counterfactual'))
+message('Financial comparison: ', file.path(root, 'output', 'airport_comparison'))
+if (run_acquisition_model) {
+  message('Acquisition results: ',
+          file.path(root, 'output', 'airport_purchase_counterfactual'))
+}
