@@ -544,11 +544,8 @@ openxlsx::addStyle(wb, prof_sheet,
   rows = sum_first + seq.int(9L, nrow(profit_big4)-1L, by = 9L),
   cols = seq_len(ncol(profit_big4)), gridExpand = TRUE, stack = TRUE)
 
-# Keep both original six-goal formula audits; presentation is intentionally
-# smaller and central-only, while audits retain all financing scenarios.
-audit_2025_cad <- TRUE
-sys.source(here::here('r', 'acquisition_formula_audits.R'),
-           envir = environment())
+# The full-width formula audits were created above; the slim central-case
+# presentation tables deliberately do not repeat their calculations.
 
 notes_sheet <- 'Acquisition methodology'
 openxlsx::addWorksheet(wb, notes_sheet, gridLines = FALSE)
