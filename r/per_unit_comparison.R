@@ -914,14 +914,17 @@ comparison_annual_complete <- tidyr::expand_grid(
 
 annual_margins <- financial_margin_annual |>
   transmute(country, airport, year,
+            # EBITDA margin: EBITDA / operating revenue
             ebitda_margin_pct = if_else(
               is.finite(ebitda_real) & is.finite(operating_rev_real) &
                 operating_rev_real > 0,
               100 * ebitda_real / operating_rev_real, NA_real_),
+            # EBIT margin: EBIT / operating revenue
             ebit_margin_pct = if_else(
               is.finite(ebit_real) & is.finite(operating_rev_real) &
                 operating_rev_real > 0,
               100 * ebit_real / operating_rev_real, NA_real_),
+            # Net after-tax profit margin: Net profit / net total revenue
             net_profit_margin_pct = if_else(
               is.finite(net_real) & is.finite(net_rev_real) & net_rev_real > 0,
               100 * net_real / net_rev_real, NA_real_)) |>
@@ -940,6 +943,7 @@ assert_unique(comparison_annual_complete,
               c('country', 'airport', 'year', 'variable'),
               'annual comparison')
 
+# Pivot to wide for for excel workbook
 make_comparison_wide <- function(data, value_col) {
   keys <- intersect(c('country', 'airport', 'year'), names(data))
   wide <- data |>
@@ -957,6 +961,7 @@ comparison_absolute_wide <- make_comparison_wide(comparison_pooled_long, 'value_
 comparison_annual_pp_wide <- make_comparison_wide(comparison_annual_complete, 'value_pp')
 comparison_annual_absolute_wide <- make_comparison_wide(comparison_annual_complete, 'value_absolute')
 
+# Column name checks
 if (nrow(comparison_annual_pp_wide) != 8L * length(recent_years) ||
     !identical(comparison_annual_pp_wide[c('country', 'airport', 'year')],
                comparison_annual_absolute_wide[c('country', 'airport', 'year')]) ||
@@ -973,6 +978,7 @@ annual_check <- comparison_annual_pp_wide |>
               select(country, airport, year, passengers),
             by = c('country', 'airport', 'year'))
 
+# Check calculated per-passenger totals with actual totals
 for (nm in setdiff(comparison_vars, margin_vars)) {
   original <- comparison_annual_absolute_wide[[nm]]
   expected <- comparison_annual_pp_wide[[nm]] * annual_check$passengers / 1e6
@@ -983,6 +989,7 @@ for (nm in setdiff(comparison_vars, margin_vars)) {
   }
 }
 
+# Make sure the margins are the same in both tables
 for (nm in margin_vars) {
   if (!identical(comparison_annual_pp_wide[[nm]],
                  comparison_annual_absolute_wide[[nm]])) {
@@ -990,6 +997,7 @@ for (nm in margin_vars) {
   }
 }
 
+# Check airports and column ordering in wide format tables
 if (nrow(comparison_pp_wide) != 8L ||
     nrow(comparison_absolute_wide) != 8L ||
     !identical(comparison_pp_wide[c('country', 'airport')],
