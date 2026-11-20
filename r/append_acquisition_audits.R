@@ -72,7 +72,7 @@ results_headers[c('net_financing_cost_m',
 stopifnot(!anyDuplicated(unname(results_headers)))
 names(results) <- unname(results_headers)
 acq_sheet <- 'Acquisition financing'
-openxlsx::addWorksheet(wb, acq_sheet, gridLines = FALSE)
+add_acquisition_worksheet(wb, acq_sheet, gridLines = FALSE)
 res_ncol <- ncol(results)
 for (r in 1:3) openxlsx::mergeCells(wb, acq_sheet,
   cols = 1:res_ncol, rows = r)
@@ -173,7 +173,7 @@ profit_big4 <- profitability |> filter(Airport == 'BIG4') |>
 stopifnot(nrow(profit_individual) == 144L, nrow(profit_big4) == 36L)
 
 prof_sheet <- 'Profitability requirements'
-openxlsx::addWorksheet(wb, prof_sheet, gridLines = FALSE)
+add_acquisition_worksheet(wb, prof_sheet, gridLines = FALSE)
 prof_cols <- ncol(profit_individual)
 intro <- c(
   'Airport profitability requirements | six independent targets plus three 15% operating sensitivities, central acquisition scenario',
@@ -299,7 +299,7 @@ openxlsx::addStyle(wb, prof_sheet,
 # presentation tables deliberately do not repeat their calculations.
 
 notes_sheet <- 'Acquisition methodology'
-openxlsx::addWorksheet(wb, notes_sheet, gridLines = FALSE)
+add_acquisition_worksheet(wb, notes_sheet, gridLines = FALSE)
 assumption_table <- readr::read_csv(
   file.path(acquisition_dir, 'scenario_assumptions.csv'),
   show_col_types = FALSE) |>
@@ -382,27 +382,14 @@ bridge_sheet <- bridge_sheets[[1L]]
 bridge_comparison_sheet <- bridge_sheets[[2L]]
 bridge_calc_sheet <- bridge_sheets[[3L]]
 
-# Preserve all ten observed-finance worksheets together, then insert the
-# selectable bridge immediately before the two slim acquisition panels.
+# The main production workbook builder applies the single final 18-tab
+# presentation order and palette and saves the integrated workbook.
+# This module adds the acquisition, profitability and bridge sheets only.
 new_sheets <- c(bridge_sheet, bridge_comparison_sheet, acq_sheet, prof_sheet,
-                bridge_calc_sheet,
-                acq_audit_sheet, profit_audit_sheet, notes_sheet)
-sheet_order <- character()
-for (nm in old_sheets) {
-  sheet_order <- c(sheet_order, nm)
-  if (nm == 'Per-passenger comparison') {
-    sheet_order <- c(sheet_order, new_sheets)
-  }
+                bridge_calc_sheet, acq_audit_sheet, profit_audit_sheet,
+                notes_sheet)
+if (length(new_sheets) != 8L || anyDuplicated(new_sheets) ||
+    length(names(wb)) != 18L ||
+    !setequal(c(old_sheets, new_sheets), names(wb))) {
+  stop('Invalid 18-sheet integrated workbook inventory.', call. = FALSE)
 }
-if (length(sheet_order) != 18L ||
-    !setequal(sheet_order, names(wb)) || anyDuplicated(sheet_order)) {
-  stop('Invalid 18-sheet integrated workbook order.', call. = FALSE)
-}
-worksheetOrder(wb) <- match(sheet_order, names(wb))
-combined_book <- file.path(out_dir,
-  'airport_financial_comparison_with_acquisition_2023_2025.xlsx')
-openxlsx::saveWorkbook(wb, combined_book, overwrite = TRUE)
-message('Saved integrated 2025-CAD acquisition workbook: ', combined_book,
-        ' (', nrow(model), ' acquisition rows, ',
-        nrow(profitability_nine), ' profitability rows; ',
-        nrow(profitability_model), ' formula-audited baseline rows).')
