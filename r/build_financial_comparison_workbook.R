@@ -1001,6 +1001,69 @@ if (any(nchar(unlist(sheet_names)) > 31L) ||
   stop('Excel worksheet names must be unique and no longer than 31 chars.')
 }
 
+# Single production presentation map: tab order and colour follow function,
+# without adding a navigation sheet or changing any financial model tables.
+production_sheet_groups <- list(
+  documentation = c(sheet_names$methodology, 'Acquisition methodology'),
+  presentation = c(
+    'Scenario comparison', 'Profitability bridge',
+    'Profitability requirements', 'Acquisition financing',
+    sheet_names$totals, sheet_names$pp
+  ),
+  calculations = c(
+    'Bridge calculations', 'Acquisition audit', 'Profitability audit',
+    sheet_names$calculations, sheet_names$profit, sheet_names$reconciliation
+  ),
+  source_data = c(
+    sheet_names$canada, sheet_names$australia,
+    sheet_names$regulatory, sheet_names$traffic
+  )
+)
+production_group_palette <- c(
+  documentation = '#778493', presentation = '#248078',
+  calculations = '#A48455', source_data = '#4D79A6'
+)
+production_sheet_order <- unlist(production_sheet_groups, use.names = FALSE)
+production_tab_colours <- stats::setNames(
+  rep(unname(production_group_palette[names(production_sheet_groups)]),
+      lengths(production_sheet_groups)),
+  production_sheet_order
+)
+if (length(production_sheet_order) != 18L ||
+    anyDuplicated(production_sheet_order) ||
+    !setequal(unlist(sheet_names, use.names = FALSE),
+              production_sheet_order[production_sheet_order %in%
+                                       unlist(sheet_names, use.names = FALSE)])) {
+  stop('Production worksheet presentation map must include 18 unique sheets.')
+}
+
+production_add_worksheet <- function(sheet, ...) {
+  if (!sheet %in% names(production_tab_colours)) {
+    stop('No production tab colour assigned to worksheet: ', sheet)
+  }
+  openxlsx::addWorksheet(wb, sheet, ...,
+    tabColour = unname(production_tab_colours[[sheet]]))
+}
+
+production_order_worksheets <- function(expected_count) {
+  available <- names(wb)
+  expected <- if (expected_count == 10L) {
+    unlist(sheet_names, use.names = FALSE)
+  } else if (expected_count == 18L) {
+    production_sheet_order
+  } else {
+    stop('Unsupported production worksheet count: ', expected_count)
+  }
+  ordered <- production_sheet_order[production_sheet_order %in% available]
+  if (length(available) != expected_count ||
+      !setequal(available, expected) ||
+      length(ordered) != expected_count || anyDuplicated(ordered)) {
+    stop('Production workbook worksheets do not match the presentation map.')
+  }
+  openxlsx::worksheetOrder(wb) <- match(ordered, available)
+  invisible(ordered)
+}
+
 style_title <- openxlsx::createStyle(
   fontSize = 16, textDecoration = 'bold', fontColour = white,
   fgFill = navy, valign = 'center'
@@ -1151,7 +1214,7 @@ add_data_sheet <- function(sheet, input_data, title, subtitle,
     stop('Translated headers are duplicated on sheet: ', sheet)
   }
 
-  openxlsx::addWorksheet(wb, sheet, gridLines = show_gridlines)
+  production_add_worksheet(sheet, gridLines = show_gridlines)
   nc <- ncol(display)
   openxlsx::writeData(wb, sheet, title, startRow = 1, startCol = 1)
   openxlsx::mergeCells(wb, sheet, rows = 1, cols = seq_len(nc))
@@ -1237,7 +1300,7 @@ add_data_sheet <- function(sheet, input_data, title, subtitle,
 
 # Documentation is written first; sheet order is set before saving.
 method_sheet <- sheet_names$methodology
-openxlsx::addWorksheet(wb, method_sheet, gridLines = FALSE)
+production_add_worksheet(method_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, method_sheet,
                     'Airport financial comparison | methodology',
                     startRow = 1, startCol = 1)
@@ -1245,6 +1308,13 @@ openxlsx::mergeCells(wb, method_sheet, cols = 1:3, rows = 1)
 openxlsx::addStyle(wb, method_sheet, style_title, rows = 1,
                    cols = 1:3, gridExpand = TRUE)
 openxlsx::setRowHeights(wb, method_sheet, 1, heights = 32)
+openxlsx::writeData(wb, method_sheet,
+  'Tab colours: slate = documentation; teal = results; ochre = calculations; blue = source data.',
+  startRow = 2, startCol = 1)
+openxlsx::mergeCells(wb, method_sheet, cols = 1:3, rows = 2)
+openxlsx::addStyle(wb, method_sheet, style_subtitle,
+  rows = 2, cols = 1:3, gridExpand = TRUE)
+openxlsx::setRowHeights(wb, method_sheet, rows = 2, heights = 24)
 openxlsx::writeDataTable(wb, method_sheet, methodology,
                          startRow = 4, tableName = 'Methods',
                          tableStyle = 'TableStyleMedium2')
@@ -1663,7 +1733,7 @@ if (nrow(recon_annual) != nrow(annual_abs) * length(amount_vars) ||
   stop('Incomplete reconciliation key coverage.')
 }
 
-openxlsx::addWorksheet(wb, recon_sheet, gridLines = FALSE)
+production_add_worksheet(recon_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, recon_sheet,
                     'Reconciliation | Excel calculations against R results',
                     startRow = 1L, startCol = 1L)
@@ -1971,21 +2041,9 @@ add_data_sheet(sheet_names$pp, final_pp,
                'FinalComparisonPerPax', show_gridlines = TRUE,
                preserve_headers = TRUE)
 
-# Write worksheets in actual reading order, regardless of the order in
-# which the builder creates them. openxlsx::worksheetOrder changes only the
-# order saved to Excel; existing sheet-name formula references are unaffected.
-reading_order <- unlist(sheet_names[c(
-  'totals', 'pp',
-  'calculations', 'profit',
-  'canada', 'australia', 'regulatory', 'traffic',
-  'methodology', 'reconciliation'
-)], use.names = FALSE)
-saved_sheet_order <- match(reading_order, names(wb))
-if (anyNA(saved_sheet_order) || anyDuplicated(saved_sheet_order) ||
-    length(saved_sheet_order) != length(names(wb))) {
-  stop('Could not establish the requested ten-worksheet reading order.')
-}
-worksheetOrder(wb) <- saved_sheet_order
+# Set the ten-sheet observed-finance order from the same map used below
+# for the 18-sheet integrated workbook.
+reading_order <- production_order_worksheets(10L)
 
 # openxlsx writes formulas but does not evaluate them. Reconciliation
 # results and the summary populate when Excel recalculates the workbook.
@@ -2010,4 +2068,14 @@ if (!exists('include_acquisition', inherits = FALSE)) include_acquisition <- TRU
 if (include_acquisition) {
   sys.source(here::here('r', 'append_acquisition_audits.R'),
              envir = environment())
+  integrated_order <- production_order_worksheets(18L)
+  combined_book <- file.path(out_dir,
+    'airport_financial_comparison_with_acquisition_2023_2025.xlsx')
+  openxlsx::saveWorkbook(wb, combined_book, overwrite = TRUE)
+  message('Saved integrated 2025-CAD acquisition workbook: ', combined_book,
+          ' (', nrow(model), ' acquisition rows, ',
+          nrow(profitability_nine), ' profitability rows; ',
+          nrow(profitability_model), ' formula-audited baseline rows).')
+  message('Production worksheet order: ',
+          paste(integrated_order, collapse = ' | '))
 }
