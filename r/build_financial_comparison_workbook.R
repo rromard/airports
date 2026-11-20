@@ -453,7 +453,7 @@ value_type_for <- function(country, airport, variable) {
                                          'profit_before_tax') ~ 'derived',
     country == 'Australia' & variable %in% c(
       'commercial_revenue', 'parking_transport_revenue',
-      'other_commercial_revenue', 'operating_expenses',
+      'operating_expenses',
       'purchased_services_other', 'depreciation_amortisation',
       'ebitda', 'ebit') ~ 'derived',
     TRUE ~ 'reported'
