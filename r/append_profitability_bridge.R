@@ -786,6 +786,12 @@ for (g in comparison_groups) {
 openxlsx::writeDataTable(wb, bridge_comparison_sheet,
   bridge_comparison, startRow = 7L, tableName = 'BridgeScenarioComparison',
   tableStyle = 'TableStyleMedium2')
+# Direct cell styles are applied AFTER creating the Excel table, so its
+# default header style cannot replace our six coherent group colours.
+for (g in comparison_groups) {
+  openxlsx::addStyle(wb, bridge_comparison_sheet, g$style,
+    rows = 6L:7L, cols = g$from:g$to, gridExpand = TRUE, stack = TRUE)
+}
 comparison_first <- 8L
 comparison_last <- comparison_first + nrow(bridge_comparison) - 1L
 comparison_pct_cols <- match(c(
