@@ -446,7 +446,7 @@ if (!all(within_tolerance(calculation_amounts$converted_check,
 value_type_for <- function(country, airport, variable) {
   case_when(
     variable %in% c('ebitda_margin_pct', 'ebit_margin_pct',
-                    'net_profit_margin_pct') ~ 'derived',
+                    'net_profit_margin_pct', 'non_aero_minus_parking') ~ 'derived',
     country == 'Canada' & variable == 'accounting_income_tax_expense' ~
       'assumed',
     country == 'Canada' & variable %in% c('total_aero', 'ebit',
@@ -465,10 +465,10 @@ formula_for <- function(country, airport, variable) {
       'aero_excl_aif + aif_revenue',
     variable == 'commercial_revenue' & country == 'Australia' ~
       'total_revenue - total_aero',
+    variable == 'non_aero_minus_parking' ~
+      'commercial_revenue - parking_transport_revenue',
     variable == 'parking_transport_revenue' & country == 'Australia' ~
       'parking_revenue + landside_revenue',
-    variable == 'other_commercial_revenue' & country == 'Australia' ~
-      'total_revenue - total_aero - parking_transport_revenue',
     variable == 'operating_expenses' & country == 'Australia' ~
       'regulatory expenditure - depreciation_amortisation',
     variable == 'purchased_services_other' & country == 'Australia' ~
@@ -918,6 +918,8 @@ methodology <- tribble(
     'Canadian financial input rows are imported as supplied by the Big 4 compilation. The workbook does not reclassify an imported subtotal as derived unless the analysis actually computes it.',
   'Commercial and other revenue',
     'The workbook uses non_aero_revenue for the upstream commercial_revenue measure. Canada uses the reported commercial/non-aeronautical subtotal, including interest income and contributions (interest income is minor); Australia uses ACCC total revenue less aeronautical revenue.',
+  'Non-aeronautical revenue minus parking',
+    'non_aero_minus_parking = non_aero_revenue - parking_transport_revenue. Parking includes ground transportation/landside revenue. A residual is available only when both source components exist; missing parking is not replaced by zero. Pooled amounts use three-year sums and pooled passenger counts.',
   'Reconciliation',
     'The Reconciliation sheet compares independently generated R CSV benchmarks with values calculated by Excel on the two calculation sheets. Check both annual and pooled values; both-missing is distinct from a numeric pass. Excel must recalculate formulas when the workbook is opened.',
   'Inputs versus presentation',
@@ -950,6 +952,7 @@ var_dictionary <- tribble(
   'aif_revenue', 'Canadian airport improvement fees',
   'commercial_revenue', 'Commercial and other revenue',
   'parking_transport_revenue', 'Car parking and landside/ground transportation revenue',
+  'non_aero_minus_parking', 'Non-aeronautical revenue minus parking (including ground transportation)',
   'operating_expenses', 'Operating expenses excluding depreciation and amortisation',
   'labour', 'Salaries, wages and benefits',
   'purchased_services_other', 'Goods and services (reported in Canada; reconstructed from comparable non-labour cost categories in Australia)',
@@ -1006,13 +1009,14 @@ if (any(nchar(unlist(sheet_names)) > 31L) ||
 production_sheet_groups <- list(
   documentation = c(sheet_names$methodology, 'Acquisition methodology'),
   presentation = c(
-    'Scenario comparison', 'Profitability bridge',
-    'Profitability requirements', 'Acquisition financing',
-    sheet_names$totals, sheet_names$pp
+    sheet_names$totals, sheet_names$pp,
+    'Acquisition financing', 'Profitability requirements',
+    'Profitability bridge', 'Scenario comparison'
   ),
   calculations = c(
-    'Bridge calculations', 'Acquisition audit', 'Profitability audit',
-    sheet_names$calculations, sheet_names$profit, sheet_names$reconciliation
+    sheet_names$calculations, sheet_names$profit,
+    'Acquisition audit', 'Profitability audit', 'Bridge calculations',
+    sheet_names$reconciliation
   ),
   source_data = c(
     sheet_names$canada, sheet_names$australia,
