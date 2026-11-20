@@ -221,9 +221,9 @@ make_profitability_presentation <- function(d) d |>
     `New after-tax profit` = counterfactual_after_tax_income_m,
     `Achieved after-tax margin` = achieved_net_margin)
 profitability <- make_profitability_presentation(central_profit)
-profitability_all <- profitability_nine |>
-  mutate(Financing = finance_name(purchase_multiple)) |>
-  bind_cols(make_profitability_presentation(profitability_nine)) |>
+profitability_all <- make_profitability_presentation(profitability_nine) |>
+  mutate(Financing = finance_name(profitability_nine$purchase_multiple),
+         .before = 1L) |>
   mutate(Lookup_key = paste(Financing, Airport, `Year / period`,
                             `Profitability objective`, sep = '|'),
          .before = 1L) |>
@@ -260,7 +260,7 @@ prof_sheet <- 'Profitability requirements'
 add_acquisition_worksheet(wb, prof_sheet, gridLines = FALSE)
 prof_cols <- ncol(profit_individual)
 intro <- c(
-  'Airport profitability requirements | six independent targets plus three 15% operating sensitivities, central acquisition scenario',
+  'Airport profitability requirements | selectable financing and nine profitability objectives',
   'Annual and pooled monetary figures: millions of 2025 CAD. Per-passenger figures: 2025 CAD. Currency units omitted from headers.',
   '1-2. Recover nonnegative pre-tax earnings (break even), then restore historical pre-tax earnings, with a zero floor for an observed loss.',
   '3-6. Test 15%, 20%, 25% and 30% AFTER-TAX margins. Convert the desired net margin into a pre-tax margin using the statutory tax rate.',
@@ -268,8 +268,43 @@ intro <- c(
   'All nine rows are independent. Extra revenue = initial pre-tax shortfall / shortfall closed per new dollar. Savings reduce the shortfall before solving. No fee or demand forecast is implied.'
 )
 for (r in seq_along(intro)) {
-  openxlsx::mergeCells(wb, prof_sheet, cols = 1:12, rows = r)
-  openxlsx::writeData(wb, prof_sheet, intro[[r]], startRow = r)
+  if (r == 2L) {
+    openxlsx::mergeCells(wb, prof_sheet, cols = 4:12, rows = r)
+    openxlsx::writeData(wb, prof_sheet, 'Finance case', startRow = 2L)
+    openxlsx::writeData(wb, prof_sheet, 'Central',
+                        startRow = 2L, startCol = 2L)
+    openxlsx::writeData(wb, prof_sheet,
+      'Annual and pooled amounts: millions of 2025 CAD; per passenger: 2025 CAD.',
+      startRow = 2L, startCol = 4L)
+  } else {
+    openxlsx::mergeCells(wb, prof_sheet, cols = 1:12, rows = r)
+    openxlsx::writeData(wb, prof_sheet, intro[[r]], startRow = r)
+  }
+}
+# Each presentation has its OWN financing selector.
+openxlsx::writeData(wb, prof_sheet, financing_choices,
+  startCol = 50L, startRow = 3L, colNames = FALSE)
+openxlsx::dataValidation(wb, prof_sheet, cols = 2L, rows = 2L,
+  type = 'list', value = '$AX$3:$AX$5')
+openxlsx::addStyle(wb, prof_sheet,
+  openxlsx::createStyle(fgFill = '#FFF3D5', textDecoration = 'bold',
+                        fontColour = '#193954'),
+  rows = 2L, cols = 2L, stack = TRUE)
+
+# Static R source for every financing and profitability objective.
+prof_src_start <- 27L  # AA key; AB:AV 21 presentation values
+prof_src_first <- 9L
+prof_src_last <- prof_src_first + nrow(profitability_all) - 1L
+openxlsx::writeData(wb, prof_sheet, profitability_all,
+  startCol = prof_src_start, startRow = prof_src_first - 1L)
+openxlsx::setColWidths(wb, prof_sheet, cols = 27:50,
+  widths = 16, hidden = TRUE)
+profit_lookup <- function(row, source_col) {
+  sprintf(paste0('INDEX($%s$%d:$%s$%d,',
+    'MATCH($B$2&"|"&$A%d&"|"&$B%d&"|"&$C%d,',
+    '$AA$%d:$AA$%d,0))'),
+    source_col, prof_src_first, source_col, prof_src_last,
+    row, row, row, prof_src_first, prof_src_last)
 }
 openxlsx::setRowHeights(wb, prof_sheet, rows = 1:6,
   heights = c(32,30,33,33,36,36))
@@ -309,6 +344,14 @@ for (g in prof_groups) {
 openxlsx::setRowHeights(wb, prof_sheet, rows = prof_stage_row, heights = 24)
 openxlsx::writeData(wb, prof_sheet, profit_individual,
                     startRow = prof_header_row, withFilter = TRUE)
+# Airport/period/objective/method stay fixed. All numeric results follow B2.
+for (j in 5:prof_cols) {
+  source_col <- openxlsx::int2col(prof_src_start + j)
+  openxlsx::writeFormula(wb, prof_sheet,
+    x = vapply(prof_first_row:prof_last_row,
+               profit_lookup, character(1), source_col = source_col),
+    startCol = j, startRow = prof_first_row)
+}
 openxlsx::addStyle(wb, prof_sheet, head_style, rows = prof_header_row,
                    cols = 1:prof_cols, gridExpand = TRUE)
 for (g in prof_groups) openxlsx::addStyle(wb, prof_sheet, g$style,
@@ -362,6 +405,16 @@ openxlsx::setRowHeights(wb, prof_sheet,
   rows = c(sum_title, sum_note), heights = c(29,28))
 openxlsx::writeData(wb, prof_sheet, profit_big4,
                     startRow = sum_header, withFilter = FALSE)
+# The BIG4 block uses the SAME B2 selector as the individual airports.
+for (j in 5:ncol(profit_big4)) {
+  source_j <- match(names(profit_big4)[[j]], names(profitability))
+  stopifnot(length(source_j) == 1L, !is.na(source_j))
+  source_col <- openxlsx::int2col(prof_src_start + source_j)
+  openxlsx::writeFormula(wb, prof_sheet,
+    x = vapply(sum_first:sum_last,
+               profit_lookup, character(1), source_col = source_col),
+    startCol = j, startRow = sum_first)
+}
 openxlsx::addStyle(wb, prof_sheet, head_profit, rows = sum_header,
   cols = seq_len(ncol(profit_big4)), gridExpand = TRUE)
 openxlsx::setRowHeights(wb, prof_sheet, rows = sum_header, heights = 65)
@@ -379,8 +432,9 @@ openxlsx::addStyle(wb, prof_sheet,
   rows = sum_first + seq.int(9L, nrow(profit_big4)-1L, by = 9L),
   cols = seq_len(ncol(profit_big4)), gridExpand = TRUE, stack = TRUE)
 
-# The full-width formula audits were created above; the slim central-case
-# presentation tables deliberately do not repeat their calculations.
+# Full-width audits remain distinct. The two presentation selectors expose
+# all three finance cases without multiplying rows or recalculating the
+# independent R counterfactual model in Excel.
 
 notes_sheet <- 'Acquisition methodology'
 add_acquisition_worksheet(wb, notes_sheet, gridLines = FALSE)
