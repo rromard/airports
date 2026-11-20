@@ -180,7 +180,8 @@ revenue_allocation_scenarios_long <- tidyr::crossing(
   comparison_source |>
     dplyr::transmute(airport, period = year_label,
                      financing = scenario_name, threshold_id,
-                     profitability_objective, passengers, required_revenue_m),
+                     profitability_objective, passengers, observed_revenue_m = revenue_m,
+                     counterfactual_revenue_m, required_revenue_m),
   revenue_allocation_shares
 ) |>
   dplyr::mutate(
@@ -216,15 +217,18 @@ readr::write_csv(
     dplyr::select(airport, period, financing, threshold_id,
                   profitability_objective, allocation_method,
                   allocation_method_label, revenue_category,
-                  revenue_category_label, required_revenue_m,
+                  revenue_category_label, observed_revenue_m,
+                  counterfactual_revenue_m, required_revenue_m,
                   allocation_share, allocated_revenue_m,
                   allocated_revenue_per_passenger_cad),
   file.path(bridge_output_dir, 'revenue_allocation_chart_long.csv')
 )
 
-# Six additional static amount columns, keyed to the pre-existing
-# scenario rows. The R model is unchanged; Excel need not calculate them.
-allocation_headers <- c(
+# Twelve allocations: six amounts plus the corresponding six per-passenger
+# rates. Keep each allocation method's components and per-passenger rates
+# together in the comparison worksheet. The scenario total is sourced from
+# the existing validated model rather than reconstructed from these values.
+allocation_headers_amount <- c(
   'Canada mix: aeronautical' = 'canada_2025_mix__total_aero',
   'Canada mix: parking/transport' =
     'canada_2025_mix__parking_transport_revenue',
@@ -237,20 +241,53 @@ allocation_headers <- c(
   'Australia growth: non-aero less parking' =
     'australia_2015_2025_growth__non_aero_minus_parking'
 )
+allocation_headers_per_pax <- c(
+  'Canada mix: aero per passenger' = 'canada_2025_mix__total_aero',
+  'Canada mix: parking per passenger' =
+    'canada_2025_mix__parking_transport_revenue',
+  'Canada mix: non-aero per passenger' =
+    'canada_2025_mix__non_aero_minus_parking',
+  'Australia growth: aero per passenger' =
+    'australia_2015_2025_growth__total_aero',
+  'Australia growth: parking per passenger' =
+    'australia_2015_2025_growth__parking_transport_revenue',
+  'Australia growth: non-aero per passenger' =
+    'australia_2015_2025_growth__non_aero_minus_parking'
+)
+allocation_headers <- c(names(allocation_headers_amount),
+                        names(allocation_headers_per_pax))
 allocation_wide <- revenue_allocation_scenarios_long |>
-  dplyr::mutate(allocation_column =
-                  paste(allocation_method, revenue_category, sep = '__')) |>
-  dplyr::transmute(
-    airport, period, financing, profitability_objective,
-    allocation_column, allocated_revenue_m
-  ) |>
-  tidyr::pivot_wider(names_from = allocation_column,
-                     values_from = allocated_revenue_m) |>
+  dplyr::mutate(allocation_column = paste(
+    allocation_method, revenue_category, sep = '__')) |>
   dplyr::select(airport, period, financing, profitability_objective,
-                dplyr::all_of(unname(allocation_headers)))
-names(allocation_wide)[-(1:4)] <- names(allocation_headers)
+                allocation_column, allocated_revenue_m,
+                allocated_revenue_per_passenger_cad) |>
+  tidyr::pivot_wider(
+    names_from = allocation_column,
+    values_from = c(allocated_revenue_m,
+                    allocated_revenue_per_passenger_cad),
+    names_glue = '{.value}__{allocation_column}'
+  )
+allocation_amount_keys <- paste0('allocated_revenue_m__',
+                                  unname(allocation_headers_amount))
+allocation_per_pax_keys <- paste0('allocated_revenue_per_passenger_cad__',
+                                   unname(allocation_headers_per_pax))
+allocation_wide <- allocation_wide |>
+  dplyr::select(airport, period, financing, profitability_objective,
+                dplyr::all_of(allocation_amount_keys),
+                dplyr::all_of(allocation_per_pax_keys))
+names(allocation_wide)[-(1:4)] <- allocation_headers
+# Keep a single method's amounts immediately beside its passenger rates.
+allocation_wide <- allocation_wide |>
+  dplyr::select(airport, period, financing, profitability_objective,
+                dplyr::all_of(names(allocation_headers_amount)[1:3]),
+                dplyr::all_of(names(allocation_headers_per_pax)[1:3]),
+                dplyr::all_of(names(allocation_headers_amount)[4:6]),
+                dplyr::all_of(names(allocation_headers_per_pax)[4:6]))
 if (nrow(allocation_wide) != 540L ||
+    ncol(allocation_wide) != 16L ||
     anyDuplicated(allocation_wide[1:4]) ||
-    anyNA(allocation_wide)) {
-  stop('Incomplete six-column wide revenue allocation join.', call. = FALSE)
+    anyNA(allocation_wide) ||
+    any(!is.finite(as.matrix(allocation_wide[-(1:4)])))) {
+  stop('Incomplete twelve-column wide revenue allocation join.', call. = FALSE)
 }
