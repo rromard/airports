@@ -392,7 +392,7 @@ calc_output_headers <- c(
 )
 calc_data <- as.data.frame(calc_input)
 for (nm in calc_output_headers) calc_data[[nm]] <- NA_real_
-openxlsx::addWorksheet(wb, bridge_calc_sheet, gridLines = FALSE)
+add_acquisition_worksheet(wb, bridge_calc_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, bridge_calc_sheet,
   'Profitability bridge | transparent 2025-CAD formula calculations',
   startRow = 1)
@@ -462,7 +462,7 @@ openxlsx::freezePane(wb, bridge_calc_sheet,
 
 # Main 20-row interactive table. All measured results are XLOOKUP formulas
 # pointing to the calculation sheet, and refresh when a selector is changed.
-openxlsx::addWorksheet(wb, bridge_sheet, gridLines = FALSE)
+add_acquisition_worksheet(wb, bridge_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, bridge_sheet,
   'Canadian airport profitability | Australia benchmark and private acquisition bridge',
   startRow = 1)
@@ -641,9 +641,9 @@ openxlsx::freezePane(wb, bridge_sheet,
 # The Australian reference is matched by period; the three-year pooled
 # Canadian period uses the Australian 2023-25 pooled revenue-weighted margin.
 comparison_source <- bridge_inputs |>
-  arrange(factor(scenario_name, levels = c('Low-cost','Central','High-cost')),
+  arrange(factor(airport, levels = c(can_airports,'BIG4')),
           factor(year_label, levels = c('2023','2024','2025','2023-25')),
-          factor(airport, levels = c(can_airports,'BIG4')),
+          factor(scenario_name, levels = c('Low-cost','Central','High-cost')),
           threshold_order)
 bridge_comparison <- comparison_source |>
   transmute(
@@ -664,7 +664,7 @@ names(bridge_comparison) <- c(
   'Airport', 'Period', 'Financing', 'Profitability objective',
   'Observed EBITDA margin', 'Australian EBITDA benchmark',
   'Margin after rent removal', 'Margin after operating savings',
-  'Final scenario EBITDA margin', 'Additional revenue (CAD m)',
+  'Final scenario EBITDA margin', 'Additional revenue',
   'Additional revenue per passenger', 'Increase vs total revenue'
 )
 comparison_keys <- paste(bridge_comparison[[1L]], bridge_comparison[[2L]],
@@ -682,7 +682,7 @@ if (nrow(bridge_comparison) != 540L || ncol(bridge_comparison) != 12L ||
        call. = FALSE)
 }
 
-openxlsx::addWorksheet(wb, bridge_comparison_sheet, gridLines = FALSE)
+add_acquisition_worksheet(wb, bridge_comparison_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, bridge_comparison_sheet,
   'Scenario comparison | Canadian acquisition outcomes and Australian reference',
   startRow = 1)
@@ -736,6 +736,28 @@ openxlsx::addStyle(wb, bridge_comparison_sheet, num_style,
   gridExpand = TRUE, stack = TRUE)
 openxlsx::addStyle(wb, bridge_comparison_sheet, per_pax_style,
   rows = comparison_first:comparison_last, cols = 11,
+  gridExpand = TRUE, stack = TRUE)
+# Default reading order groups all objectives by airport, period and
+# financing. Draw borders only where airport or period changes; avoid
+# adding a rule to every profitability-objective row.
+airport_change <- which(comparison_source$airport !=
+  dplyr::lag(comparison_source$airport))
+period_change <- which(comparison_source$year_label !=
+  dplyr::lag(comparison_source$year_label) &
+  comparison_source$airport == dplyr::lag(comparison_source$airport))
+if (length(airport_change) != 4L || length(period_change) != 15L ||
+    any(airport_change %in% period_change)) {
+  stop('Unexpected scenario comparison group boundaries.', call. = FALSE)
+}
+openxlsx::addStyle(wb, bridge_comparison_sheet,
+  openxlsx::createStyle(border = 'top', borderStyle = 'thin',
+                        borderColour = '#D1DBE3'),
+  rows = comparison_first + period_change - 1L, cols = 1:12,
+  gridExpand = TRUE, stack = TRUE)
+openxlsx::addStyle(wb, bridge_comparison_sheet,
+  openxlsx::createStyle(border = 'top', borderStyle = 'medium',
+                        borderColour = '#8393A0'),
+  rows = comparison_first + airport_change - 1L, cols = 1:12,
   gridExpand = TRUE, stack = TRUE)
 openxlsx::setColWidths(wb, bridge_comparison_sheet,
   cols = c(1:3,4,5:9,10:12), widths = c(rep(14,3),45,rep(21,5),23,25,23))
