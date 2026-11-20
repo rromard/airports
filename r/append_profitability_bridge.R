@@ -560,12 +560,15 @@ openxlsx::setRowHeights(wb, bridge_sheet,
   rows = c(8L, bridge_header_row), heights = c(26,68))
 openxlsx::setColWidths(wb, bridge_sheet, cols = 3:20, widths = 21)
 openxlsx::setColWidths(wb, bridge_sheet, cols = c(13,19), widths = 26)
+# INDEX/MATCH works in Excel and LibreOffice without newer _xlfn
+# function registration. Deliberately expose #N/A for missing keys.
 bridge_lookup <- function(r, source_col) {
   sprintf(paste0(
-    'IFERROR(XLOOKUP($A%d&"|"&$B%d&"|"&$B$3&"|"&$B$4,',
-    "'Bridge calculations'!$A$%d:$A$%d,",
-    "'Bridge calculations'!$%s$%d:$%s$%d),\"\")"),
-    r,r,calc_first,calc_last,source_col,calc_first,source_col,calc_last)
+    'INDEX(\'Bridge calculations\'!$%s$%d:$%s$%d,',
+    'MATCH($A%d&"|"&$B%d&"|"&$B$3&"|"&$B$4,',
+    '\'Bridge calculations\'!$A$%d:$A$%d,0))'),
+    source_col, calc_first, source_col, calc_last,
+    r, r, calc_first, calc_last)
 }
 link_cols <- c(
   C='H', D='I', E='J', F='AE', G='AF', H='Z', I='AH',
@@ -581,11 +584,27 @@ for (dest_col in names(link_cols)) {
              openxlsx::int2col, character(1))),
     startRow = bridge_first)
 }
+# Assert that all twenty visible keys exist once in the 540-case
+# source table for every selectable scenario/objective, not just the default.
+bridge_test_keys <- tidyr::crossing(
+  Airport = c(can_airports, 'BIG4'),
+  Period = c('2023','2024','2025','2023-25'),
+  Financing = c('Low-cost','Central','High-cost'),
+  Objective = bridge_options
+) |>
+  dplyr::mutate(Key = paste(Airport, Period, Financing, Objective, sep = '|'))
+if (nrow(bridge_test_keys) != 540L ||
+    anyDuplicated(bridge_test_keys$Key) ||
+    !setequal(bridge_test_keys$Key, calc_input$Key)) {
+  stop('Profitability bridge lookup keys do not match the 540 source cases.',
+       call. = FALSE)
+}
+
 # Per-passenger private revenue is computed from the selected model source
 # row's passenger denominator; no independent passenger-level assumption.
 per_pax_formulas <- vapply(bridge_first:bridge_last, function(r) {
   p <- bridge_lookup(r, 'G')
-  sprintf('IFERROR(L%d*1000000/(%s),"")',r,p)
+  sprintf('L%d*1000000/(%s)',r,p)
 }, character(1))
 openxlsx::writeFormula(wb, bridge_sheet, x = per_pax_formulas,
                        startCol = 13, startRow = bridge_first)
