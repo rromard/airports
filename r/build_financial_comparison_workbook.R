@@ -1031,9 +1031,9 @@ production_tab_colours <- stats::setNames(
 )
 if (length(production_sheet_order) != 18L ||
     anyDuplicated(production_sheet_order) ||
-    !setequal(unlist(sheet_names, use.names = FALSE),
-              production_sheet_order[production_sheet_order %in%
-                                       unlist(sheet_names, use.names = FALSE)])) {
+    !all(unlist(sheet_names, use.names = FALSE) %in%
+         production_sheet_order) ||
+    anyNA(production_tab_colours)) {
   stop('Production worksheet presentation map must include 18 unique sheets.')
 }
 
