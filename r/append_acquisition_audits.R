@@ -15,9 +15,8 @@ sys.source(here::here('r', 'acquisition_audit_format.R'), envir = environment())
 audit_2025_cad <- TRUE
 sys.source(here::here('r', 'acquisition_formula_audits.R'), envir = environment())
 
-# Presentation sheets preserve the original compact central-case layout.
-# Each has its OWN financing selector and Excel lookups against all three
-# source cases. The full independent R data also remain in the audits.
+# Acquisition financing shows all 60 cases; profitability requirements
+# retains its independent dropdown to avoid displaying 540 rows.
 central_id <- 'M22.5-D60-R5.5'
 financing_choices <- c('Low-cost', 'Central', 'High-cost')
 finance_name <- function(multiple) {
@@ -77,7 +76,14 @@ results_cols <- c(
 )
 stopifnot(length(results_cols) == 21L,
           all(results_cols %in% names(central_model)))
-results <- central_model |> select(all_of(results_cols))
+results <- model |>
+  mutate(Financing = finance_name(purchase_multiple)) |>
+  arrange(factor(airport, levels = c(can_airports, 'BIG4')),
+          factor(year_label, levels = period_levels),
+          factor(Financing, levels = financing_choices)) |>
+  select(Financing, all_of(results_cols))
+stopifnot(nrow(results) == 60L, !anyNA(results$Financing))
+results_cols <- c('Financing', results_cols)
 acq_source <- model |>
   mutate(Financing = finance_name(purchase_multiple),
          Lookup_key = paste(Financing, airport, year_label, sep = '|')) |>
@@ -94,7 +100,7 @@ if (nrow(acq_source) != 60L || anyNA(acq_source$Lookup_key) ||
         dplyr::pull(Lookup_key))) {
   stop('Acquisition selector source does not contain every financing case.')
 }
-results_headers <- column_headers[results_cols]
+results_headers <- c(Financing = 'Financing scenario', column_headers[results_cols[-1L]])
 results_headers[c('net_financing_cost_m',
                   'combined_net_financing_cost_proxy_m')] <-
   c('Existing net financing costs', 'Total net financing costs')
@@ -103,58 +109,19 @@ names(results) <- unname(results_headers)
 acq_sheet <- 'Acquisition financing'
 add_acquisition_worksheet(wb, acq_sheet, gridLines = FALSE)
 res_ncol <- ncol(results)
-for (r in c(1L, 3L)) openxlsx::mergeCells(wb, acq_sheet,
+for (r in 1:3) openxlsx::mergeCells(wb, acq_sheet,
   cols = 1:res_ncol, rows = r)
-openxlsx::mergeCells(wb, acq_sheet, cols = 4:res_ncol, rows = 2)
 openxlsx::writeData(wb, acq_sheet,
-  'Airport acquisition counterfactual | selectable acquisition financing',
+  'Airport acquisition counterfactual | all three financing scenarios',
   startRow = 1)
-openxlsx::writeData(wb, acq_sheet, 'Finance case', startRow = 2)
-openxlsx::writeData(wb, acq_sheet, 'Central', startRow = 2, startCol = 2)
 openxlsx::writeData(wb, acq_sheet,
-  'Select a financing case. All money in millions of 2025 CAD.',
-  startRow = 2, startCol = 4)
+  'All three financing cases shown for each airport and period; millions of 2025 CAD.',
+  startRow = 2)
 openxlsx::writeData(wb, acq_sheet,
   'Acquisition-adjusted EBTDA = reported EBITDA + eliminated rent - existing net financing - new acquisition interest. Profit targets and taxes are on the next sheet.',
   startRow = 3)
 openxlsx::writeData(wb, acq_sheet, results, startRow = 4, withFilter = TRUE)
 
-# Hidden table: one unambiguous case per financing × airport × period.
-# The visible scenario identifier and all amounts are Excel lookups.
-acq_src_start <- 27L   # AA
-acq_src_first <- 9L
-acq_src_last <- acq_src_first + nrow(acq_source) - 1L
-openxlsx::writeData(wb, acq_sheet, acq_source, startRow = acq_src_first - 1L,
-                    startCol = acq_src_start)
-acq_lookup <- function(row, source_col) {
-  lookup <- sprintf(paste0('INDEX($%s$%d:$%s$%d,',
-                          'MATCH($B$2&"|"&$B%d&"|"&$C%d,',
-                          '$AA$%d:$AA$%d,0))'),
-                    source_col, acq_src_first, source_col, acq_src_last,
-                    row, row, acq_src_first, acq_src_last)
-  # COUNT examines the INDEX reference, distinguishing a source blank
-  # from a genuine numeric zero (INDEX alone can display blanks as zero).
-  if (source_col != openxlsx::int2col(acq_src_start + 1L)) {
-    lookup <- sprintf('IF(COUNT(%s)=1,%s,"")', lookup, lookup)
-  }
-  lookup
-}
-for (j in c(1L, 4:res_ncol)) {
-  src_letter <- openxlsx::int2col(acq_src_start + j)
-  openxlsx::writeFormula(wb, acq_sheet,
-    x = vapply(5:(nrow(results) + 4L), acq_lookup, character(1),
-               source_col = src_letter),
-    startCol = j, startRow = 5L)
-}
-openxlsx::writeData(wb, acq_sheet, financing_choices,
-  startCol = 50L, startRow = 3L, colNames = FALSE)
-openxlsx::dataValidation(wb, acq_sheet, cols = 2L, rows = 2L,
-  type = 'list', value = '$AX$3:$AX$5')
-openxlsx::setColWidths(wb, acq_sheet, cols = 27:50, widths = 15, hidden = TRUE)
-openxlsx::addStyle(wb, acq_sheet,
-  openxlsx::createStyle(fgFill = '#FFF3D5', textDecoration = 'bold',
-                        fontColour = '#193954'),
-  rows = 2L, cols = 2L, stack = TRUE)
 openxlsx::setColWidths(wb, acq_sheet, cols = 1, widths = 22)
 openxlsx::setColWidths(wb, acq_sheet, cols = 2:3, widths = 13)
 openxlsx::setColWidths(wb, acq_sheet, cols = 4:res_ncol, widths = 19)
@@ -176,7 +143,7 @@ results_header_groups <- list(
     'rent_adjusted_pre_tax_income_m','purchase_adjusted_pre_tax_income_m')
 )
 stopifnot(setequal(unlist(results_header_groups, use.names = FALSE),
-                   results_cols[-(1:3)]))
+                   results_cols[-(1:4)]))
 for (group in names(results_header_groups)) {
   stage_style <- switch(group, acquisition = head_acquisition,
     financing = head_financing, earnings = head_earnings)
@@ -185,7 +152,11 @@ for (group in names(results_header_groups)) {
     gridExpand = TRUE)
 }
 openxlsx::addStyle(wb, acq_sheet, num_style, rows = 5:(nrow(results)+4L),
-  cols = 4:res_ncol, gridExpand = TRUE)
+  cols = 5:res_ncol, gridExpand = TRUE)
+openxlsx::addStyle(wb, acq_sheet,
+  openxlsx::createStyle(border = 'top', borderColour = '#B0BAC5'),
+  rows = 5L + seq.int(3L, nrow(results)-1L, by = 3L),
+  cols = seq_len(res_ncol), gridExpand = TRUE, stack = TRUE)
 style_airport_periods(acq_sheet, results, 5L, res_ncol)
 openxlsx::addStyle(wb, acq_sheet,
   openxlsx::createStyle(fontSize = 15, textDecoration = 'bold',
@@ -196,7 +167,7 @@ openxlsx::addStyle(wb, acq_sheet,
 openxlsx::addStyle(wb, acq_sheet,
   openxlsx::createStyle(fontSize = 10, fontColour = '#445569',
                         textDecoration = 'italic'), rows = 3, cols = 1)
-openxlsx::freezePane(wb, acq_sheet, firstActiveRow = 5, firstActiveCol = 4)
+openxlsx::freezePane(wb, acq_sheet, firstActiveRow = 5, firstActiveCol = 5)
 
 # Reuse the original 21-column profitability presentation sequence.
 # The three sensitivities remain rows after the baseline 15% case.
@@ -463,7 +434,7 @@ openxlsx::addStyle(wb, notes_sheet, pct_style, rows = 4:6,
 method_notes <- tibble::tribble(
   ~Topic, ~Interpretation,
   'Analysis order',
-    'The presentation tabs progress from observed total financial results to per-passenger rates, acquisition financing, profitability requirements, interactive bridge and full scenario comparison. Acquisition financing (B2), Profitability requirements (B2), and Profitability bridge (B3) each have independent financing selectors; changing one does not change the others. Their underlying R financial and acquisition models are not recalculated.',
+    'The presentation tabs progress from observed total financial results to per-passenger rates, acquisition financing, profitability requirements, interactive bridge and full scenario comparison. Acquisition financing shows all 60 cases; Profitability requirements (B2) and Profitability bridge (B3) retain independent selectors. Their underlying R financial and acquisition models are not recalculated.',
   'Australian EBITDA benchmark',
     'The benchmark equals the sum of EBITDA across BNE, MEL, PER and SYD divided by the sum of the matching EBITDA operating-revenue denominators, all in 2025 CAD. It is revenue-weighted, not an average of airport EBITDA percentages or net-profit margins.',
   'Benchmark selector',
@@ -501,7 +472,7 @@ method_notes <- tibble::tribble(
   'What is excluded',
     'No investment-demand response, fee forecast, principal amortization, transaction fees, investor IRR, working capital, forward demand growth or full cash-flow coverage model is included.',
   'Audit vs presentation',
-    'Acquisition financing and Profitability requirements retain their compact layouts but now display any of the three financing packages using separate Excel dropdowns. Both default to Central, and the BIG4 profitability block follows the Profitability requirements dropdown. The final Scenario comparison has all 540 cases as fixed R values. The separate formula audits retain all cases and require Excel recalculation.'
+    'Acquisition financing shows all 60 cases grouped by airport and period, with three financing scenarios adjacent. Profitability requirements retains its Central-default dropdown, including the BIG4 summary. The final Scenario comparison has all 540 cases as fixed R values. The separate formula audits retain all cases and require Excel recalculation.'
 )
 openxlsx::writeData(wb, notes_sheet, method_notes, startRow = 9)
 openxlsx::addStyle(wb, notes_sheet,
