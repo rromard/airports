@@ -10,7 +10,7 @@
 # No explanatory EBTDA margins and no repeated 15/20/25/30% column blocks.
 
 create_audit_sheet <- function(sheet,title,subtitle,ncols) {
-  openxlsx::addWorksheet(wb,sheet,gridLines=FALSE)
+  add_acquisition_worksheet(wb,sheet,gridLines=FALSE)
   for (r in 1:2) openxlsx::mergeCells(wb,sheet,cols=seq_len(ncols),rows=r)
   openxlsx::writeData(wb,sheet,title,startRow=1)
   openxlsx::writeData(wb,sheet,subtitle,startRow=2)
