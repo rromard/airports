@@ -1,4 +1,15 @@
 # Shared colours, financial number formats and acquisition column headings.
+
+# Preserve standalone workbook behaviour. In the integrated production builder,
+# colours come from the single sheet-to-function map in the main script.
+add_acquisition_worksheet <- function(wb, sheet, ...) {
+  tab_colour <- NULL
+  if (exists('production_tab_colours', inherits = TRUE) &&
+      sheet %in% names(production_tab_colours)) {
+    tab_colour <- unname(production_tab_colours[[sheet]])
+  }
+  openxlsx::addWorksheet(wb, sheet, ..., tabColour = tab_colour)
+}
 # Workbook-specific model/audit column definitions must already exist.
 
 head_style <- openxlsx::createStyle(fontColour='#FFFFFF',fgFill='#193954',
