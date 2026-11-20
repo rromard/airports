@@ -132,10 +132,10 @@ acq_lookup <- function(row, source_col) {
                           '$AA$%d:$AA$%d,0))'),
                     source_col, acq_src_first, source_col, acq_src_last,
                     row, row, acq_src_first, acq_src_last)
-  # INDEX on a blank Excel cell can display zero. Preserve true missing
-  # numeric source values, while allowing a genuine numeric zero.
+  # COUNT examines the INDEX reference, distinguishing a source blank
+  # from a genuine numeric zero (INDEX alone can display blanks as zero).
   if (source_col != openxlsx::int2col(acq_src_start + 1L)) {
-    lookup <- sprintf('IF(ISNUMBER(%s),%s,"")', lookup, lookup)
+    lookup <- sprintf('IF(COUNT(%s)=1,%s,"")', lookup, lookup)
   }
   lookup
 }
@@ -311,7 +311,7 @@ profit_lookup <- function(row, source_col) {
     '$AA$%d:$AA$%d,0))'),
     source_col, prof_src_first, source_col, prof_src_last,
     row, row, row, prof_src_first, prof_src_last)
-  sprintf('IF(ISNUMBER(%s),%s,"")', lookup, lookup)
+  sprintf('IF(COUNT(%s)=1,%s,"")', lookup, lookup)
 }
 openxlsx::setRowHeights(wb, prof_sheet, rows = 1:6,
   heights = c(32,30,33,33,36,36))
