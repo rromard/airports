@@ -5,10 +5,10 @@
 #
 # Direct execution reads SAVED 2023-25 comparison CSVs and the saved
 # acquisition RDS (no financial model regeneration and no global objects).
-# It saves a standalone two-sheet workbook and three CSVs.
+# It saves a standalone three-sheet workbook and three CSVs.
 #
 # When sourced by append_acquisition_audits.R with bridge_integrated_mode
-# set TRUE, the exact same calculation / worksheet code appends the two
+# set TRUE, the exact same calculation / worksheet code appends the three
 # worksheets to the already-open integrated workbook; saving remains the
 # responsibility of the integrated workbook builder.
 #
@@ -106,11 +106,13 @@ bridge_chart_metrics <- c(
 bridge_export_chart_long <- TRUE
 
 bridge_sheet <- 'Profitability bridge'
+bridge_comparison_sheet <- 'Scenario comparison'
 bridge_calc_sheet <- 'Bridge calculations'
 bridge_modes <- c('Pooled 2023-25', 'Year-matched')
 bridge_output_dir <- file.path(out_dir, 'profitability_bridge')
 dir.create(bridge_output_dir, showWarnings = FALSE, recursive = TRUE)
-stopifnot(!any(c(bridge_sheet, bridge_calc_sheet) %in% names(wb)))
+stopifnot(!any(c(bridge_sheet, bridge_comparison_sheet,
+                 bridge_calc_sheet) %in% names(wb)))
 
 required_compare <- c('country', 'airport', 'year', 'period_type',
                       'ebitda', 'total_revenue')
@@ -632,14 +634,125 @@ openxlsx::addStyle(wb, bridge_sheet,
 openxlsx::freezePane(wb, bridge_sheet,
   firstActiveRow = bridge_first, firstActiveCol = 3)
 
+# Flat scenario comparison | 540 fully calculated, filterable R cases.
+# Use the same validated inputs and financing/profitability solutions as the
+# interactive bridge. Unlike the formula audit, these are WRITTEN VALUES,
+# so the comparison is visible without spreadsheet formula recalculation.
+# The Australian reference is matched by period; the three-year pooled
+# Canadian period uses the Australian 2023-25 pooled revenue-weighted margin.
+comparison_source <- bridge_inputs |>
+  arrange(factor(scenario_name, levels = c('Low-cost','Central','High-cost')),
+          factor(year_label, levels = c('2023','2024','2025','2023-25')),
+          factor(airport, levels = c(can_airports,'BIG4')),
+          threshold_order)
+bridge_comparison <- comparison_source |>
+  transmute(
+    Airport = airport,
+    Period = year_label,
+    Financing = scenario_name,
+    Objective = profitability_objective,
+    Observed_margin = ebitda_m / revenue_m,
+    Australian_margin = benchmark_matching,
+    Rent_adjusted_margin = (ebitda_m + ground_rent_m) / revenue_m,
+    Savings_adjusted_margin = base_operating_ebitda_m / revenue_m,
+    Final_margin = counterfactual_ebitda_m / counterfactual_revenue_m,
+    Additional_revenue_m = required_revenue_m,
+    Additional_revenue_pp = required_revenue_m * 1e6 / passengers,
+    Revenue_increase = required_revenue_m / revenue_m
+  )
+names(bridge_comparison) <- c(
+  'Airport', 'Period', 'Financing', 'Profitability objective',
+  'Observed EBITDA margin', 'Australian EBITDA benchmark',
+  'Margin after rent removal', 'Margin after operating savings',
+  'Final scenario EBITDA margin', 'Additional revenue (CAD m)',
+  'Additional revenue per passenger', 'Increase vs total revenue'
+)
+comparison_keys <- paste(bridge_comparison[[1L]], bridge_comparison[[2L]],
+                         bridge_comparison[[3L]], bridge_comparison[[4L]],
+                         sep = '|')
+if (nrow(bridge_comparison) != 540L || ncol(bridge_comparison) != 12L ||
+    anyDuplicated(comparison_keys) ||
+    !setequal(comparison_keys, calc_input$Key) ||
+    any(!is.finite(as.matrix(bridge_comparison[5:12]))) ||
+    any(abs(bridge_comparison[[11L]] -
+            comparison_source$required_revenue_per_pax_cad) > 1e-5) ||
+    any(abs(bridge_comparison[[12L]] -
+            comparison_source$required_uplift_pct) > 1e-8)) {
+  stop('Scenario comparison does not reconcile to all 540 model cases.',
+       call. = FALSE)
+}
+
+openxlsx::addWorksheet(wb, bridge_comparison_sheet, gridLines = FALSE)
+openxlsx::writeData(wb, bridge_comparison_sheet,
+  'Scenario comparison | Canadian acquisition outcomes and Australian reference',
+  startRow = 1)
+openxlsx::mergeCells(wb, bridge_comparison_sheet, cols = 1:12, rows = 1)
+openxlsx::addStyle(wb, bridge_comparison_sheet,
+  openxlsx::createStyle(fontSize = 15, fontColour = '#193954',
+                        textDecoration = 'bold'), rows = 1, cols = 1)
+openxlsx::writeData(wb, bridge_comparison_sheet,
+  '540 cases: 5 airport groups x 4 periods x 3 financing packages x 9 profitability objectives. Use the column filters to compare results.',
+  startRow = 3)
+openxlsx::writeData(wb, bridge_comparison_sheet,
+  'Australian benchmark: weighted EBITDA margin matched to the year (pooled for 2023-25). Uplift: additional revenue relative to EXISTING total revenue. All dollars are 2025 CAD; per-passenger amounts are revenue equivalents, not proposed fees.',
+  startRow = 4)
+for (r in c(3L,4L)) {
+  openxlsx::mergeCells(wb, bridge_comparison_sheet, cols = 1:12, rows = r)
+}
+openxlsx::addStyle(wb, bridge_comparison_sheet,
+  openxlsx::createStyle(wrapText = TRUE, fontColour = '#445569'),
+  rows = 3:4, cols = 1, gridExpand = TRUE)
+openxlsx::setRowHeights(wb, bridge_comparison_sheet,
+  rows = c(1L,3L,4L,6L,7L), heights = c(34,30,36,26,64))
+
+comparison_groups <- list(
+  list(from = 1L, to = 4L, label = 'SCENARIO', style = head_acquisition),
+  list(from = 5L, to = 6L, label = 'OBSERVED / AUSTRALIAN REFERENCE',
+       style = head_earnings),
+  list(from = 7L, to = 8L, label = 'OPERATING ADJUSTMENTS',
+       style = head_profit),
+  list(from = 9L, to = 12L, label = 'ACQUISITION OUTCOME',
+       style = head_revenue)
+)
+for (g in comparison_groups) {
+  openxlsx::mergeCells(wb, bridge_comparison_sheet,
+                       cols = g$from:g$to, rows = 6L)
+  openxlsx::writeData(wb, bridge_comparison_sheet, g$label,
+                      startRow = 6L, startCol = g$from)
+  openxlsx::addStyle(wb, bridge_comparison_sheet, g$style,
+                     rows = 6L, cols = g$from:g$to,
+                     gridExpand = TRUE)
+}
+openxlsx::writeDataTable(wb, bridge_comparison_sheet,
+  bridge_comparison, startRow = 7L, tableName = 'BridgeScenarioComparison',
+  tableStyle = 'TableStyleMedium2')
+comparison_first <- 8L
+comparison_last <- comparison_first + nrow(bridge_comparison) - 1L
+openxlsx::addStyle(wb, bridge_comparison_sheet, pct_style,
+  rows = comparison_first:comparison_last, cols = c(5:9,12),
+  gridExpand = TRUE, stack = TRUE)
+openxlsx::addStyle(wb, bridge_comparison_sheet, num_style,
+  rows = comparison_first:comparison_last, cols = 10,
+  gridExpand = TRUE, stack = TRUE)
+openxlsx::addStyle(wb, bridge_comparison_sheet, per_pax_style,
+  rows = comparison_first:comparison_last, cols = 11,
+  gridExpand = TRUE, stack = TRUE)
+openxlsx::setColWidths(wb, bridge_comparison_sheet,
+  cols = c(1:3,4,5:9,10:12), widths = c(rep(14,3),45,rep(21,5),23,25,23))
+openxlsx::freezePane(wb, bridge_comparison_sheet,
+  firstActiveRow = comparison_first, firstActiveCol = 5)
+
 message('Prepared profitability bridge: 20 selectable Excel rows; ',
         nrow(calc_data), ' formula audit cases; ',
+        nrow(bridge_comparison), ' static scenario comparison rows; ',
         nrow(bridge_export), ' independent R scenario / benchmark rows; ',
         nrow(bridge_australia), ' Australian benchmark observations.')
 
 # Save only the small standalone workbook when executed directly.
-# The integrated builder saves its existing 17-sheet workbook separately.
+# The integrated builder saves its expanded 18-sheet workbook separately.
 if (!bridge_integrated_mode) {
+  openxlsx::worksheetOrder(wb) <- match(
+    c(bridge_sheet, bridge_comparison_sheet, bridge_calc_sheet), names(wb))
   standalone_path <- file.path(bridge_output_dir,
     'airport_profitability_bridge_standalone_2023_2025.xlsx')
   openxlsx::saveWorkbook(wb, standalone_path, overwrite = TRUE)
