@@ -778,8 +778,9 @@ for (g in comparison_groups) {
                        cols = g$from:g$to, rows = 6L)
   openxlsx::writeData(wb, bridge_comparison_sheet, g$label,
                       startRow = 6L, startCol = g$from)
+  # As on Profitability bridge, colour the group and table headers.
   openxlsx::addStyle(wb, bridge_comparison_sheet, g$style,
-                     rows = 6L, cols = g$from:g$to,
+                     rows = 6L:7L, cols = g$from:g$to,
                      gridExpand = TRUE)
 }
 openxlsx::writeDataTable(wb, bridge_comparison_sheet,
