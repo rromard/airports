@@ -123,8 +123,8 @@ openxlsx::writeData(wb, acq_sheet,
 openxlsx::writeData(wb, acq_sheet, results, startRow = 4, withFilter = TRUE)
 
 openxlsx::setColWidths(wb, acq_sheet, cols = 1, widths = 22)
-openxlsx::setColWidths(wb, acq_sheet, cols = 2:3, widths = 13)
-openxlsx::setColWidths(wb, acq_sheet, cols = 4:res_ncol, widths = 19)
+openxlsx::setColWidths(wb, acq_sheet, cols = 2:4, widths = c(18,13,13))
+openxlsx::setColWidths(wb, acq_sheet, cols = 5:res_ncol, widths = 19)
 openxlsx::setColWidths(wb, acq_sheet,
   cols = match(c('equity_purchase_consideration_m','valuation_ebitda_m'),
                results_cols), widths = 22)
