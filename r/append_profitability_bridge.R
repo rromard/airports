@@ -100,8 +100,8 @@ bridge_chart_metrics <- c(
   counterfactual_ebtda_margin_pct = 'Scenario-adjusted EBTDA margin',
   acquisition_required_revenue_m = 'Revenue needed for selected private objective',
   benchmark_required_revenue_m = 'Revenue needed for Australian EBITDA margin',
-  additional_revenue_gap_m = 'Private objective less operating benchmark, CAD m',
-  additional_revenue_gap_per_pax_cad = 'Private objective less operating benchmark, CAD per passenger'
+  additional_revenue_gap_m = 'Private objective less Australian benchmark, CAD m',
+  additional_revenue_gap_per_pax_cad = 'Private objective less Australian benchmark, CAD per passenger'
 )
 bridge_export_chart_long <- TRUE
 
@@ -384,11 +384,11 @@ stopifnot(nrow(calc_input) == 540L, !anyDuplicated(calc_input$Key),
 calc_output_headers <- c(
   'Base EBITDA after savings', 'Scenario total revenue', 'Scenario EBITDA',
   'Scenario EBITDA margin', 'Scenario EBTDA', 'Scenario EBTDA margin',
-  'Selected benchmark margin', 'Benchmark revenue requirement',
-  'Benchmark revenue per passenger', 'Revenue gap versus benchmark',
+  'Selected Australian benchmark margin', 'Australian benchmark revenue requirement',
+  'Australian benchmark revenue per passenger', 'Revenue gap versus Australian benchmark',
   'Revenue gap per passenger', 'Observed EBITDA margin',
   'Rent-adjusted EBITDA margin', 'Purchase-adjusted EBTDA margin',
-  'Benchmark gap versus rent-adjusted (pp)'
+  'Australian benchmark gap versus rent-adjusted (pp)'
 )
 calc_data <- as.data.frame(calc_input)
 for (nm in calc_output_headers) calc_data[[nm]] <- NA_real_
@@ -520,12 +520,12 @@ bridge_presentation_cols <- c(
   'Airport', 'Period', 'Observed revenue', 'Observed EBITDA',
   'Ground rent eliminated', 'Observed EBITDA margin',
   'Rent-adjusted EBITDA margin', 'Australian EBITDA benchmark',
-  'Baseline operating gap (pp)', 'New acquisition interest',
+  'Australian operating gap (pp)', 'New acquisition interest',
   'Purchase-adjusted EBTDA margin', 'Private revenue requirement',
   'Private revenue per passenger', 'Scenario-adjusted EBITDA margin',
-  'Scenario-adjusted EBTDA margin', 'Benchmark revenue requirement',
-  'Benchmark revenue per passenger', 'Extra revenue beyond benchmark',
-  'Extra revenue beyond benchmark per pax', 'Achieved after-tax margin'
+  'Scenario-adjusted EBTDA margin', 'Australian benchmark revenue requirement',
+  'Australian benchmark revenue per passenger', 'Extra revenue beyond Australian benchmark',
+  'Extra revenue beyond Australian benchmark per pax', 'Achieved after-tax margin'
 )
 bridge_presentation <- tidyr::expand_grid(
   Airport = c(can_airports,'BIG4'),
@@ -545,10 +545,10 @@ openxlsx::writeData(wb, bridge_sheet, bridge_presentation,
                     startRow = bridge_header_row, withFilter = TRUE)
 bridge_groups <- list(
   list(from=1L,to=5L,label='AIRPORT / OBSERVED FINANCES',style=head_acquisition),
-  list(from=6L,to=9L,label='OPERATING BENCHMARK',style=head_earnings),
+  list(from=6L,to=9L,label='AUSTRALIAN OPERATING BENCHMARK',style=head_earnings),
   list(from=10L,to=11L,label='ACQUISITION FINANCING',style=head_financing),
   list(from=12L,to=15L,label='PRIVATE PROFITABILITY',style=head_profit),
-  list(from=16L,to=20L,label='BENCHMARK REVENUE AND REMAINING GAP',style=head_revenue)
+  list(from=16L,to=20L,label='AUSTRALIAN BENCHMARK REVENUE AND GAP',style=head_revenue)
 )
 for (g in bridge_groups) {
   openxlsx::mergeCells(wb, bridge_sheet, cols = g$from:g$to, rows = 8L)
