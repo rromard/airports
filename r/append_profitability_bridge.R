@@ -707,11 +707,35 @@ bridge_comparison <- comparison_source |>
     `Achieved after-tax profit margin` = achieved_net_margin,
     `Aeronautical revenue` = total_aero,
     `Parking and ground transportation revenue` = parking_transport_revenue,
-    `Non-aeronautical revenue minus parking` = non_aero_minus_parking
+    `Non-aeronautical revenue minus parking` = non_aero_minus_parking,
+    `Aeronautical revenue per passenger` = total_aero * 1e6 / passengers,
+    `Parking and ground transportation revenue per passenger` =
+      parking_transport_revenue * 1e6 / passengers,
+    `Non-aeronautical revenue minus parking per passenger` =
+      non_aero_minus_parking * 1e6 / passengers
   )
 comparison_keys <- paste(bridge_comparison[[1L]], bridge_comparison[[2L]],
                          bridge_comparison[[3L]], bridge_comparison[[4L]],
                          sep = '|')
+# Composition can be unavailable for some airports/periods; retain NA
+# in both the total and per-passenger columns rather than replacing it with 0.
+composition_pairs <- list(
+  c('Aeronautical revenue', 'Aeronautical revenue per passenger'),
+  c('Parking and ground transportation revenue',
+    'Parking and ground transportation revenue per passenger'),
+  c('Non-aeronautical revenue minus parking',
+    'Non-aeronautical revenue minus parking per passenger')
+)
+for (pair in composition_pairs) {
+  observed <- bridge_comparison[[pair[[1L]]]]
+  per_pax <- bridge_comparison[[pair[[2L]]]]
+  expected <- observed * 1e6 / bridge_comparison$Passengers
+  if (!identical(is.na(observed), is.na(per_pax)) ||
+      any(abs(per_pax - expected) > 1e-6, na.rm = TRUE)) {
+    stop('Revenue composition per-passenger reconciliation failed: ',
+         pair[[1L]], call. = FALSE)
+  }
+}
 comparison_numeric_required <- c(
   'Passengers', 'Observed revenue', 'Observed EBITDA',
   'Estimated purchase price', 'New acquisition debt',
@@ -722,7 +746,7 @@ comparison_numeric_required <- c(
   'Additional revenue per passenger', 'Increase vs total revenue',
   'Achieved after-tax profit margin'
 )
-if (nrow(bridge_comparison) != 540L || ncol(bridge_comparison) != 23L ||
+if (nrow(bridge_comparison) != 540L || ncol(bridge_comparison) != 26L ||
     anyDuplicated(comparison_keys) ||
     !setequal(comparison_keys, calc_input$Key) ||
     any(!is.finite(as.matrix(bridge_comparison[comparison_numeric_required]))) ||
@@ -741,7 +765,7 @@ add_acquisition_worksheet(wb, bridge_comparison_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, bridge_comparison_sheet,
   'Scenario comparison | Canadian acquisition outcomes and Australian reference',
   startRow = 1)
-openxlsx::mergeCells(wb, bridge_comparison_sheet, cols = 1:23, rows = 1)
+openxlsx::mergeCells(wb, bridge_comparison_sheet, cols = 1:26, rows = 1)
 openxlsx::addStyle(wb, bridge_comparison_sheet,
   openxlsx::createStyle(fontSize = 15, fontColour = '#193954',
                         textDecoration = 'bold'), rows = 1, cols = 1)
@@ -749,10 +773,10 @@ openxlsx::writeData(wb, bridge_comparison_sheet,
   '540 cases: 5 airport groups x 4 periods x 3 financing packages x 9 profitability objectives. Use the column filters to compare results.',
   startRow = 3)
 openxlsx::writeData(wb, bridge_comparison_sheet,
-  'Revenue split: aeronautical, parking/ground transportation, and non-aeronautical minus parking. Missing components remain blank. Australian EBITDA benchmark is year-matched (pooled for 2023-25). Financial values are millions of 2025 CAD; per passenger, 2025 CAD. Revenue uplift is not a fee forecast.',
+  'Current revenue split: aeronautical, parking/ground transportation, and non-aeronautical minus parking, in totals and per passenger. Missing components remain blank. Australian EBITDA benchmark is year-matched (pooled for 2023-25). Financial values are millions of 2025 CAD; per passenger, 2025 CAD. Revenue uplift is not a fee forecast.',
   startRow = 4)
 for (r in c(3L,4L)) {
-  openxlsx::mergeCells(wb, bridge_comparison_sheet, cols = 1:23, rows = r)
+  openxlsx::mergeCells(wb, bridge_comparison_sheet, cols = 1:26, rows = r)
 }
 openxlsx::addStyle(wb, bridge_comparison_sheet,
   openxlsx::createStyle(wrapText = TRUE, fontColour = '#445569'),
@@ -770,7 +794,7 @@ comparison_groups <- list(
        style = head_profit),
   list(from = 17L, to = 20L, label = 'REVENUE REQUIREMENT AND OUTCOME',
        style = head_revenue),
-  list(from = 21L, to = 23L, label = 'REVENUE COMPOSITION',
+  list(from = 21L, to = 26L, label = 'CURRENT REVENUE COMPOSITION',
        style = head_acquisition)
 )
 for (g in comparison_groups) {
@@ -809,7 +833,7 @@ openxlsx::addStyle(wb, bridge_comparison_sheet, num_style,
   rows = comparison_first:comparison_last, cols = c(6:11, 17, 21:23),
   gridExpand = TRUE, stack = TRUE)
 openxlsx::addStyle(wb, bridge_comparison_sheet, per_pax_style,
-  rows = comparison_first:comparison_last, cols = 18,
+  rows = comparison_first:comparison_last, cols = c(18, 24:26),
   gridExpand = TRUE, stack = TRUE)
 # Default reading order groups all objectives by airport, period and
 # financing. Draw borders only where airport or period changes; avoid
@@ -826,16 +850,17 @@ if (length(airport_change) != 4L || length(period_change) != 15L ||
 openxlsx::addStyle(wb, bridge_comparison_sheet,
   openxlsx::createStyle(border = 'top', borderStyle = 'thin',
                         borderColour = '#D1DBE3'),
-  rows = comparison_first + period_change - 1L, cols = 1:23,
+  rows = comparison_first + period_change - 1L, cols = 1:26,
   gridExpand = TRUE, stack = TRUE)
 openxlsx::addStyle(wb, bridge_comparison_sheet,
   openxlsx::createStyle(border = 'top', borderStyle = 'medium',
                         borderColour = '#8393A0'),
-  rows = comparison_first + airport_change - 1L, cols = 1:23,
+  rows = comparison_first + airport_change - 1L, cols = 1:26,
   gridExpand = TRUE, stack = TRUE)
 comparison_widths <- c(
   12, 13, 15, 47, 17, 22, 22, 22, 22, 22,
-  25, 22, 24, 22, 30, 25, 22, 27, 22, 25, 22, 29, 31
+  25, 22, 24, 22, 30, 25, 22, 27, 22, 25, 22, 29, 31,
+  25, 33, 36
 )
 stopifnot(length(comparison_widths) == ncol(bridge_comparison))
 openxlsx::setColWidths(wb, bridge_comparison_sheet,
