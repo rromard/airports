@@ -86,10 +86,12 @@ acq_source <- model |>
 if (nrow(acq_source) != 60L || anyNA(acq_source$Lookup_key) ||
     anyDuplicated(acq_source$Lookup_key) ||
     !setequal(acq_source$Lookup_key,
-      as.vector(outer(financing_choices,
-        paste(rep(can_airports |> c('BIG4'), each = 4),
-              rep(period_levels, times = 5), sep = '|'),
-        paste, sep = '|')))) {
+      tidyr::expand_grid(Financing = financing_choices,
+                         airport = c(can_airports, 'BIG4'),
+                         period = period_levels) |>
+        dplyr::transmute(Lookup_key =
+          paste(Financing, airport, period, sep = '|')) |>
+        dplyr::pull(Lookup_key))) {
   stop('Acquisition selector source does not contain every financing case.')
 }
 results_headers <- column_headers[results_cols]
@@ -125,10 +127,17 @@ acq_src_last <- acq_src_first + nrow(acq_source) - 1L
 openxlsx::writeData(wb, acq_sheet, acq_source, startRow = acq_src_first - 1L,
                     startCol = acq_src_start)
 acq_lookup <- function(row, source_col) {
-  sprintf(paste0('INDEX($%s$%d:$%s$%d,',
-                 'MATCH($B$2&"|"&$B%d&"|"&$C%d,$AA$%d:$AA$%d,0))'),
-          source_col, acq_src_first, source_col, acq_src_last,
-          row, row, acq_src_first, acq_src_last)
+  lookup <- sprintf(paste0('INDEX($%s$%d:$%s$%d,',
+                          'MATCH($B$2&"|"&$B%d&"|"&$C%d,',
+                          '$AA$%d:$AA$%d,0))'),
+                    source_col, acq_src_first, source_col, acq_src_last,
+                    row, row, acq_src_first, acq_src_last)
+  # INDEX on a blank Excel cell can display zero. Preserve true missing
+  # numeric source values, while allowing a genuine numeric zero.
+  if (source_col != openxlsx::int2col(acq_src_start + 1L)) {
+    lookup <- sprintf('IF(ISNUMBER(%s),%s,"")', lookup, lookup)
+  }
+  lookup
 }
 for (j in c(1L, 4:res_ncol)) {
   src_letter <- openxlsx::int2col(acq_src_start + j)
@@ -297,11 +306,12 @@ openxlsx::writeData(wb, prof_sheet, profitability_all,
 openxlsx::setColWidths(wb, prof_sheet, cols = 27:50,
   widths = 16, hidden = TRUE)
 profit_lookup <- function(row, source_col) {
-  sprintf(paste0('INDEX($%s$%d:$%s$%d,',
+  lookup <- sprintf(paste0('INDEX($%s$%d:$%s$%d,',
     'MATCH($B$2&"|"&$A%d&"|"&$B%d&"|"&$C%d,',
     '$AA$%d:$AA$%d,0))'),
     source_col, prof_src_first, source_col, prof_src_last,
     row, row, row, prof_src_first, prof_src_last)
+  sprintf('IF(ISNUMBER(%s),%s,"")', lookup, lookup)
 }
 openxlsx::setRowHeights(wb, prof_sheet, rows = 1:6,
   heights = c(32,30,33,33,36,36))
