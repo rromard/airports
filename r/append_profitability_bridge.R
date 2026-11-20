@@ -691,9 +691,6 @@ bridge_comparison <- comparison_source |>
     Passengers = passengers,
     `Observed revenue` = revenue_m,
     `Observed EBITDA` = ebitda_m,
-    `Aeronautical revenue` = total_aero,
-    `Parking and ground transportation revenue` = parking_transport_revenue,
-    `Non-aeronautical revenue minus parking` = non_aero_minus_parking,
     `Estimated purchase price` = acquisition_sale_value_m,
     `New acquisition debt` = acquisition_borrowing_m,
     `Additional acquisition interest` = additional_acquisition_interest_m,
@@ -701,13 +698,16 @@ bridge_comparison <- comparison_source |>
     `Observed EBITDA margin` = ebitda_m / revenue_m,
     `Australian EBITDA benchmark` = benchmark_matching,
     `Margin after rent removal` = (ebitda_m + ground_rent_m) / revenue_m,
-    `Margin after operating savings` = base_operating_ebitda_m / revenue_m,
+    `Margin after existing operating cost adjustment` = base_operating_ebitda_m / revenue_m,
     `Final scenario EBITDA margin` =
       counterfactual_ebitda_m / counterfactual_revenue_m,
     `Additional revenue` = required_revenue_m,
     `Additional revenue per passenger` = required_revenue_m * 1e6 / passengers,
     `Increase vs total revenue` = required_revenue_m / revenue_m,
-    `Achieved after-tax profit margin` = achieved_net_margin
+    `Achieved after-tax profit margin` = achieved_net_margin,
+    `Aeronautical revenue` = total_aero,
+    `Parking and ground transportation revenue` = parking_transport_revenue,
+    `Non-aeronautical revenue minus parking` = non_aero_minus_parking
   )
 comparison_keys <- paste(bridge_comparison[[1L]], bridge_comparison[[2L]],
                          bridge_comparison[[3L]], bridge_comparison[[4L]],
@@ -717,7 +717,7 @@ comparison_numeric_required <- c(
   'Estimated purchase price', 'New acquisition debt',
   'Additional acquisition interest', 'Post-acquisition pre-tax profit',
   'Observed EBITDA margin', 'Australian EBITDA benchmark',
-  'Margin after rent removal', 'Margin after operating savings',
+  'Margin after rent removal', 'Margin after existing operating cost adjustment',
   'Final scenario EBITDA margin', 'Additional revenue',
   'Additional revenue per passenger', 'Increase vs total revenue',
   'Achieved after-tax profit margin'
@@ -764,14 +764,14 @@ comparison_groups <- list(
   list(from = 1L, to = 4L, label = 'SCENARIO', style = head_acquisition),
   list(from = 5L, to = 7L, label = 'OBSERVED FINANCES',
        style = head_earnings),
-  list(from = 8L, to = 10L, label = 'REVENUE COMPOSITION',
-       style = head_acquisition),
-  list(from = 11L, to = 14L, label = 'ACQUISITION FINANCING',
+  list(from = 8L, to = 11L, label = 'ACQUISITION FINANCING',
        style = head_financing),
-  list(from = 15L, to = 19L, label = 'OPERATING PROFITABILITY',
+  list(from = 12L, to = 16L, label = 'OPERATING PROFITABILITY',
        style = head_profit),
-  list(from = 20L, to = 23L, label = 'REVENUE REQUIREMENT AND OUTCOME',
-       style = head_revenue)
+  list(from = 17L, to = 20L, label = 'REVENUE REQUIREMENT AND OUTCOME',
+       style = head_revenue),
+  list(from = 21L, to = 23L, label = 'REVENUE COMPOSITION',
+       style = head_acquisition)
 )
 for (g in comparison_groups) {
   openxlsx::mergeCells(wb, bridge_comparison_sheet,
@@ -796,7 +796,7 @@ comparison_first <- 8L
 comparison_last <- comparison_first + nrow(bridge_comparison) - 1L
 comparison_pct_cols <- match(c(
   'Observed EBITDA margin', 'Australian EBITDA benchmark',
-  'Margin after rent removal', 'Margin after operating savings',
+  'Margin after rent removal', 'Margin after existing operating cost adjustment',
   'Final scenario EBITDA margin', 'Increase vs total revenue',
   'Achieved after-tax profit margin'), names(bridge_comparison))
 openxlsx::addStyle(wb, bridge_comparison_sheet, pct_style,
@@ -806,10 +806,10 @@ openxlsx::addStyle(wb, bridge_comparison_sheet, int_style,
   rows = comparison_first:comparison_last, cols = 5,
   gridExpand = TRUE, stack = TRUE)
 openxlsx::addStyle(wb, bridge_comparison_sheet, num_style,
-  rows = comparison_first:comparison_last, cols = c(6:14, 20),
+  rows = comparison_first:comparison_last, cols = c(6:11, 17, 21:23),
   gridExpand = TRUE, stack = TRUE)
 openxlsx::addStyle(wb, bridge_comparison_sheet, per_pax_style,
-  rows = comparison_first:comparison_last, cols = 21,
+  rows = comparison_first:comparison_last, cols = 18,
   gridExpand = TRUE, stack = TRUE)
 # Default reading order groups all objectives by airport, period and
 # financing. Draw borders only where airport or period changes; avoid
@@ -834,8 +834,8 @@ openxlsx::addStyle(wb, bridge_comparison_sheet,
   rows = comparison_first + airport_change - 1L, cols = 1:23,
   gridExpand = TRUE, stack = TRUE)
 comparison_widths <- c(
-  12, 13, 15, 47, 17, 22, 22, 22, 29, 31,
-  22, 22, 22, 25, 22, 24, 22, 24, 25, 22, 27, 22, 25
+  12, 13, 15, 47, 17, 22, 22, 22, 22, 22,
+  25, 22, 24, 22, 30, 25, 22, 27, 22, 25, 22, 29, 31
 )
 stopifnot(length(comparison_widths) == ncol(bridge_comparison))
 openxlsx::setColWidths(wb, bridge_comparison_sheet,
