@@ -460,8 +460,8 @@ openxlsx::setRowHeights(wb, bridge_calc_sheet, rows = 8, heights = 60)
 openxlsx::freezePane(wb, bridge_calc_sheet,
   firstActiveRow = calc_first, firstActiveCol = 7)
 
-# Main 20-row interactive table. All measured results are XLOOKUP formulas
-# pointing to the calculation sheet, and refresh when a selector is changed.
+# Main 20-row interactive table. Results use INDEX/MATCH formulas
+# referencing Bridge calculations, and refresh when a selector is changed.
 add_acquisition_worksheet(wb, bridge_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, bridge_sheet,
   'Canadian airport profitability | Australia benchmark and private acquisition bridge',
