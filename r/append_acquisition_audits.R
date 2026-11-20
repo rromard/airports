@@ -32,9 +32,6 @@ if (anyNA(finance_name(model$purchase_multiple)) ||
 }
 # Both independently selectable tables use INDEX/MATCH on full source cases.
 # Avoid relying on positional rows or precomputing displayed scenario values.
-source_key <- function(financing, airport, year, objective = NULL) {
-  paste(c(financing, airport, year, objective), collapse = '|')
-}
 period_levels <- c(as.character(years), '2023-25')
 arrange_central <- function(d) {
   d |>
@@ -456,7 +453,7 @@ openxlsx::addStyle(wb, notes_sheet, pct_style, rows = 4:6,
 method_notes <- tibble::tribble(
   ~Topic, ~Interpretation,
   'Analysis order',
-    'The presentation tabs progress from observed total financial results to per-passenger rates, acquisition financing, profitability requirements, interactive bridge and full scenario comparison. The independent R financial and acquisition models are not recalculated.',
+    'The presentation tabs progress from observed total financial results to per-passenger rates, acquisition financing, profitability requirements, interactive bridge and full scenario comparison. Acquisition financing (B2), Profitability requirements (B2), and Profitability bridge (B3) each have independent financing selectors; changing one does not change the others. Their underlying R financial and acquisition models are not recalculated.',
   'Australian EBITDA benchmark',
     'The benchmark equals the sum of EBITDA across BNE, MEL, PER and SYD divided by the sum of the matching EBITDA operating-revenue denominators, all in 2025 CAD. It is revenue-weighted, not an average of airport EBITDA percentages or net-profit margins.',
   'Benchmark selector',
@@ -494,7 +491,7 @@ method_notes <- tibble::tribble(
   'What is excluded',
     'No investment-demand response, fee forecast, principal amortization, transaction fees, investor IRR, working capital, forward demand growth or full cash-flow coverage model is included.',
   'Audit vs presentation',
-    'Acquisition financing and Profitability requirements remain slim CENTRAL-financing-case presentations; profitability includes three 15% sensitivity rows. The final Scenario comparison covers all three financing scenarios and all nine objectives without Excel recalculation. The separate formula audits retain all cases and require Excel recalculation.'
+    'Acquisition financing and Profitability requirements retain their compact layouts but now display any of the three financing packages using separate Excel dropdowns. Both default to Central, and the BIG4 profitability block follows the Profitability requirements dropdown. The final Scenario comparison has all 540 cases as fixed R values. The separate formula audits retain all cases and require Excel recalculation.'
 )
 openxlsx::writeData(wb, notes_sheet, method_notes, startRow = 9)
 openxlsx::addStyle(wb, notes_sheet,
