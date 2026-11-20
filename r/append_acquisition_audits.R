@@ -318,11 +318,13 @@ openxlsx::addStyle(wb, notes_sheet, pct_style, rows = 4:6,
 method_notes <- tibble::tribble(
   ~Topic, ~Interpretation,
   'Analysis order',
-    'The Profitability bridge connects Canadian and Australian operating profitability to the separate acquisition financing and profitability scenarios. The underlying financial and acquisition models are not recalculated by the bridge.',
+    'The Profitability bridge and Scenario comparison connect Canadian and Australian operating profitability to the separate acquisition financing and profitability scenarios. The underlying financial and acquisition models are not recalculated.',
   'Australian EBITDA benchmark',
     'The benchmark equals the sum of EBITDA across BNE, MEL, PER and SYD divided by the sum of the matching EBITDA operating-revenue denominators, all in 2025 CAD. It is revenue-weighted, not an average of airport EBITDA percentages or net-profit margins.',
   'Benchmark selector',
-    'The bridge allows a constant 2023-25 pooled Australian EBITDA margin or a matching annual Australian EBITDA margin. For the three-year pooled Canadian period, both settings use the same pooled Australian benchmark.',
+    'The interactive bridge allows a constant 2023-25 pooled Australian EBITDA margin or a matching annual Australian EBITDA margin. For the three-year pooled Canadian period, both settings use the same pooled Australian benchmark.',
+  'Scenario comparison worksheet',
+    'One filterable R-calculated row for each of 540 combinations: five Canadian airport groups, four periods, three finance cases and nine profitability objectives. The Australian reference is year-matched (pooled for 2023-25). It shows EBITDA margins before and after rent elimination, after operating savings, and after required additional revenue, plus the revenue uplift in 2025 CAD millions, per passenger and relative to existing total revenue. These are static values readable without Excel formula recalculation.',
   'Operating benchmark revenue',
     'For a target margin b, Canadian revenue R and rent-adjusted EBITDA E, revenue-to-profit conversion c, and savings S, the required incremental revenue is MAX(0,(bR-E-S)/(c-b)). A margin above c would make the positive-revenue solution infeasible.',
   'Private-acquisition revenue gap',
@@ -352,7 +354,7 @@ method_notes <- tibble::tribble(
   'What is excluded',
     'No investment-demand response, fee forecast, principal amortization, transaction fees, investor IRR, working capital, forward demand growth or full cash-flow coverage model is included.',
   'Audit vs presentation',
-    'The two slim central-case presentation sheets reuse the standalone audit column selections; profitability adds three 15% sensitivity rows. The separate full-width acquisition and profitability audits retain all three financing scenarios and linked Excel formulas. Excel recalculation is required for formula results.'
+    'The two slim central-case presentation sheets reuse the standalone audit column selections; profitability adds three 15% sensitivity rows. The scenario comparison is an R-calculated static table. The separate full-width acquisition and profitability audits retain all three financing scenarios and linked Excel formulas. Excel recalculation is required for formula results.'
 )
 openxlsx::writeData(wb, notes_sheet, method_notes, startRow = 9)
 openxlsx::addStyle(wb, notes_sheet,
@@ -366,7 +368,7 @@ openxlsx::freezePane(wb, notes_sheet, firstActiveRow = 3)
 
 # FINAL ANALYTIC BRIDGE | DISPLAY AND EXPORT -----------------------------
 # The bridge consumes the same validated, already-adjusted R model and the
-# matched Australian EBITDA comparison. The module adds two worksheets and
+# matched Australian EBITDA comparison. The module adds three worksheets and
 # chart-friendly independent CSV results; the acquisition math is unchanged.
 # Isolate the integrated-mode flag so direct source() calls to the bridge
 # remain standalone even later in the same R session.
@@ -374,14 +376,16 @@ bridge_sheets <- local({
   bridge_integrated_mode <- TRUE
   sys.source(here::here('r', 'append_profitability_bridge.R'),
              envir = environment())
-  c(bridge_sheet, bridge_calc_sheet)
+  c(bridge_sheet, bridge_comparison_sheet, bridge_calc_sheet)
 })
 bridge_sheet <- bridge_sheets[[1L]]
-bridge_calc_sheet <- bridge_sheets[[2L]]
+bridge_comparison_sheet <- bridge_sheets[[2L]]
+bridge_calc_sheet <- bridge_sheets[[3L]]
 
 # Preserve all ten observed-finance worksheets together, then insert the
 # selectable bridge immediately before the two slim acquisition panels.
-new_sheets <- c(bridge_sheet, acq_sheet, prof_sheet, bridge_calc_sheet,
+new_sheets <- c(bridge_sheet, bridge_comparison_sheet, acq_sheet, prof_sheet,
+                bridge_calc_sheet,
                 acq_audit_sheet, profit_audit_sheet, notes_sheet)
 sheet_order <- character()
 for (nm in old_sheets) {
@@ -390,9 +394,9 @@ for (nm in old_sheets) {
     sheet_order <- c(sheet_order, new_sheets)
   }
 }
-if (length(sheet_order) != 17L ||
+if (length(sheet_order) != 18L ||
     !setequal(sheet_order, names(wb)) || anyDuplicated(sheet_order)) {
-  stop('Invalid 17-sheet integrated workbook order.', call. = FALSE)
+  stop('Invalid 18-sheet integrated workbook order.', call. = FALSE)
 }
 worksheetOrder(wb) <- match(sheet_order, names(wb))
 combined_book <- file.path(out_dir,
