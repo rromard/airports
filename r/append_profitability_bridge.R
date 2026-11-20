@@ -60,7 +60,8 @@ if (!bridge_integrated_mode) {
     pooled |>
       dplyr::mutate(period_type = 'pooled 2023-25',
                     year = NA_integer_, .after = airport)
-  )
+  ) |>
+    dplyr::rename(non_aero_revenue = commercial_revenue)
   if (nrow(annual) != 24L || nrow(pooled) != 8L ||
       anyDuplicated(annual[c('country','airport','year')]) ||
       anyDuplicated(pooled[c('country','airport')])) {
@@ -115,7 +116,8 @@ stopifnot(!any(c(bridge_sheet, bridge_comparison_sheet,
                  bridge_calc_sheet) %in% names(wb)))
 
 required_compare <- c('country', 'airport', 'year', 'period_type',
-                      'ebitda', 'total_revenue')
+                      'ebitda', 'total_revenue', 'total_aero', 'non_aero_revenue',
+                       'parking_transport_revenue', 'non_aero_minus_parking')
 if (!all(required_compare %in% names(final_totals))) {
   stop('Comparison workbook lacks the matched EBITDA/revenue benchmark fields.',
        call. = FALSE)
@@ -172,10 +174,45 @@ if (!all(c('ebitda_m', 'ground_rent_m', 'net_financing_cost_m',
 bridge_model_financing <- model |>
   select(all_of(bridge_keys), ebitda_m, ground_rent_m,
          net_financing_cost_m, additional_acquisition_interest_m,
+         acquisition_sale_value_m = estimated_sale_value_m,
+         acquisition_borrowing_m = new_acquisition_debt_m,
          observed_revenue_check_m = revenue_m,
          observed_passenger_check = passengers)
+
+# Observed revenues stay fixed across all financing and profit objectives.
+# BIG4 sums the four source airports; a missing parking component stays NA.
+bridge_mix_fields <- c('total_aero', 'non_aero_revenue',
+                       'parking_transport_revenue', 'non_aero_minus_parking')
+bridge_mix_airports <- final_totals |>
+  filter(country == 'Canada') |>
+  mutate(year_label = if_else(is.na(year), '2023-25',
+                              as.character(year))) |>
+  select(airport, year_label, all_of(bridge_mix_fields))
+bridge_mix_big4 <- bridge_mix_airports |>
+  group_by(year_label) |>
+  summarise(across(all_of(bridge_mix_fields),
+                   ~ if (all(is.finite(.x))) sum(.x) else NA_real_),
+            .groups = 'drop') |>
+  mutate(airport = 'BIG4', .before = 1)
+bridge_revenue_mix <- bind_rows(bridge_mix_airports, bridge_mix_big4)
+if (nrow(bridge_revenue_mix) != 20L ||
+    anyDuplicated(bridge_revenue_mix[c('airport', 'year_label')])) {
+  stop('Incomplete Canadian revenue-mix keys.', call. = FALSE)
+}
+mix_complete <- is.finite(bridge_revenue_mix$non_aero_revenue) &
+  is.finite(bridge_revenue_mix$parking_transport_revenue)
+if (!all(is.finite(bridge_revenue_mix$non_aero_minus_parking) ==
+         mix_complete) ||
+    any(abs(bridge_revenue_mix$non_aero_minus_parking[mix_complete] -
+            (bridge_revenue_mix$non_aero_revenue[mix_complete] -
+             bridge_revenue_mix$parking_transport_revenue[mix_complete])) >
+          1e-5)) {
+  stop('Canadian non-aeronautical revenue residual fails reconciliation.',
+       call. = FALSE)
+}
 bridge_inputs <- profitability_nine |>
   left_join(bridge_model_financing, by = bridge_keys) |>
+  left_join(bridge_revenue_mix, by = c('airport', 'year_label')) |>
   left_join(bridge_australia |>
     select(year_label, benchmark_matching = benchmark_margin),
     by = 'year_label') |>
