@@ -319,13 +319,36 @@ if (nrow(can_aif |> filter(year %in% recent_years)) !=
   stop('Incomplete 2023–2025 Canadian aero + AIF records in Big 4 long.')
 }
 
+# The Canadian non-aeronautical subtotal is reported by the operator.
+# Subtract parking/ground transportation only when both components exist.
+# Missing parking is not interpreted as zero.
+can_residual <- can_long |>
+  filter(year %in% recent_years,
+         variable %in% c('commercial_revenue', 'parking_transport_revenue')) |>
+  select(airport, year, period, passengers, adjustment_to_2025,
+         variable, value_m) |>
+  tidyr::pivot_wider(names_from = variable, values_from = value_m) |>
+  mutate(
+    value_m = commercial_revenue - parking_transport_revenue,
+    country = 'Canada',
+    item = 'Non-aeronautical revenue minus parking and ground transportation',
+    category = 'derived', variable = 'non_aero_minus_parking',
+    amount_cad_2025_m = value_m * adjustment_to_2025,
+    per_passenger_cad_2025 = amount_cad_2025_m * 1e6 / passengers,
+    grossup_method = 'none'
+  ) |>
+  select(country, airport, year, period, item, category, variable,
+         value_m, passengers, amount_cad_2025_m,
+         per_passenger_cad_2025, grossup_method)
+
 can_values <- bind_rows(
   can_long |> select(country, airport, year, period, item, category,
                      variable, value_m, passengers, amount_cad_2025_m,
                      per_passenger_cad_2025, grossup_method),
   can_aif |> select(country, airport, year, period, item, category,
                     variable, value_m, passengers, amount_cad_2025_m,
-                    per_passenger_cad_2025, grossup_method)
+                    per_passenger_cad_2025, grossup_method),
+  can_residual
 )
 
 # ============================================================================
@@ -355,15 +378,15 @@ has_landside_detail <- all(c('landside_revenue',
                              'parking_transport_revenue') %in% names(aus_fin))
 if (!has_landside_detail) {
   warning('ACCC financial workbook has no updated landside/parking-transport ',
-          'categories; leaving these and other_commercial_revenue as NA.')
+          'categories; leaving these and non_aero_minus_parking as NA.')
   for (nm in c('landside_revenue', 'parking_transport_revenue')) {
     if (!nm %in% names(aus_fin)) aus_fin[[nm]] <- NA_real_
   }
 }
 aus_fin <- aus_fin |>
   mutate(commercial_revenue = total_revenue - aero_revenue,
-         other_commercial_revenue = if (has_landside_detail) {
-           other_revenue
+         non_aero_minus_parking = if (has_landside_detail) {
+           commercial_revenue - parking_transport_revenue
          } else NA_real_)
 
 fy_end <- function(x) {
@@ -401,7 +424,7 @@ if (anyNA(aus_long$passengers) || any(aus_long$passengers <= 0)) {
 compare_vars <- c('total_revenue', 'aero_revenue', 'aero_plus_aif',
                   'aif_revenue', 'commercial_revenue',
                   'parking_transport_revenue', 'parking_revenue',
-                  'landside_revenue', 'other_commercial_revenue')
+                  'landside_revenue', 'non_aero_minus_parking')
 
 annual_all <- bind_rows(can_values, aus_long) |>
   filter(variable %in% compare_vars, !is.na(value_m), passengers > 0) |>
@@ -782,7 +805,7 @@ if (nrow(da_check) != 8L * length(recent_years) ||
 comparison_vars <- c(
   'total_revenue', 'total_aero', 'aero_excl_aif', 'aif_revenue',
   'commercial_revenue', 'parking_transport_revenue', 'parking_revenue',
-  'landside_revenue', 'other_commercial_revenue',
+  'landside_revenue', 'non_aero_minus_parking',
   'operating_expenses', 'labour', 'purchased_services_other',
   'depreciation_amortisation', 'federal_ground_rent', 'pilt',
   'musqueam_yvr_agreement', 'asset_impairment',
@@ -1038,7 +1061,7 @@ for (nm in c('ebitda_margin_pct', 'ebit_margin_pct',
 keep_vars <- c(
   'total_revenue', 'total_aero', 'aero_excl_aif', 'aif_revenue',
   'commercial_revenue', 'parking_transport_revenue',
-  'operating_expenses', 'labour', 'purchased_services_other',
+  'non_aero_minus_parking', 'operating_expenses', 'labour', 'purchased_services_other',
   'federal_ground_rent', 'pilt',
   'ebitda', 'ebitda_margin_pct',
   'depreciation_amortisation', 'asset_impairment',
@@ -1056,6 +1079,23 @@ comparison_annual_pp_final <- comparison_annual_pp_wide |>
   select(country, airport, year, all_of(keep_vars))
 comparison_annual_absolute_final <- comparison_annual_absolute_wide |>
   select(country, airport, year, all_of(keep_vars))
+
+# Validate the residual in both presentations, for annual and pooled periods.
+check_non_aero_residual <- function(d, label) {
+  has_components <- is.finite(d$commercial_revenue) &
+    is.finite(d$parking_transport_revenue)
+  if (!all(is.finite(d$non_aero_minus_parking) == has_components) ||
+      any(abs(d$non_aero_minus_parking[has_components] -
+              (d$commercial_revenue[has_components] -
+               d$parking_transport_revenue[has_components])) > 1e-6)) {
+    stop('Non-aeronautical-minus-parking reconciliation fails: ', label,
+         call. = FALSE)
+  }
+}
+check_non_aero_residual(comparison_annual_absolute_final, 'annual totals')
+check_non_aero_residual(comparison_annual_pp_final, 'annual per passenger')
+check_non_aero_residual(comparison_pooled_absolute_final, 'pooled totals')
+check_non_aero_residual(comparison_pooled_pp_final, 'pooled per passenger')
 
 # 8.3 Write annual and pooled CSV outputs
 # ----------------------------------------------------------------
@@ -1139,7 +1179,8 @@ sup_map <- tribble(
   'total_revenue',              'total_revenue',
   'total_aero',                 'aero_revenue',
   'commercial_revenue',         'total_revenue',
-  'parking_transport_revenue',  'parking_transport_revenue'
+  'parking_transport_revenue',  'parking_transport_revenue',
+  'non_aero_minus_parking',     'total_revenue'
 )
 
 sup_sources <- sup_sources |>
