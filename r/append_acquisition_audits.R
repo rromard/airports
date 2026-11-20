@@ -15,10 +15,22 @@ sys.source(here::here('r', 'acquisition_audit_format.R'), envir = environment())
 audit_2025_cad <- TRUE
 sys.source(here::here('r', 'acquisition_formula_audits.R'), envir = environment())
 
-# Presentation sheets reproduce the SLIM CENTRAL-case design of the
-# standalone counterfactual workbook. The full three-scenario data and
-# linked formulas remain available on the two separate audit sheets.
+# Acquisition financing shows all 60 cases; profitability requirements
+# retains its independent dropdown to avoid displaying 540 rows.
 central_id <- 'M22.5-D60-R5.5'
+financing_choices <- c('Low-cost', 'Central', 'High-cost')
+finance_name <- function(multiple) {
+  dplyr::case_when(multiple == 20 ~ 'Low-cost',
+                   multiple == 22.5 ~ 'Central',
+                   multiple == 25 ~ 'High-cost',
+                   TRUE ~ NA_character_)
+}
+if (anyNA(finance_name(model$purchase_multiple)) ||
+    anyNA(finance_name(profitability_nine$purchase_multiple))) {
+  stop('Unrecognised financing case in acquisition presentation inputs.')
+}
+# Both independently selectable tables use INDEX/MATCH on full source cases.
+# Avoid relying on positional rows or precomputing displayed scenario values.
 period_levels <- c(as.character(years), '2023-25')
 arrange_central <- function(d) {
   d |>
@@ -64,8 +76,31 @@ results_cols <- c(
 )
 stopifnot(length(results_cols) == 21L,
           all(results_cols %in% names(central_model)))
-results <- central_model |> select(all_of(results_cols))
-results_headers <- column_headers[results_cols]
+results <- model |>
+  mutate(Financing = finance_name(purchase_multiple)) |>
+  arrange(factor(airport, levels = c(can_airports, 'BIG4')),
+          factor(year_label, levels = period_levels),
+          factor(Financing, levels = financing_choices)) |>
+  select(Financing, all_of(results_cols))
+stopifnot(nrow(results) == 60L, !anyNA(results$Financing))
+results_cols <- c('Financing', results_cols)
+acq_source <- model |>
+  mutate(Financing = finance_name(purchase_multiple),
+         Lookup_key = paste(Financing, airport, year_label, sep = '|')) |>
+  select(Lookup_key, all_of(results_cols)) |>
+  arrange(Lookup_key)
+if (nrow(acq_source) != 60L || anyNA(acq_source$Lookup_key) ||
+    anyDuplicated(acq_source$Lookup_key) ||
+    !setequal(acq_source$Lookup_key,
+      tidyr::expand_grid(Financing = financing_choices,
+                         airport = c(can_airports, 'BIG4'),
+                         period = period_levels) |>
+        dplyr::transmute(Lookup_key =
+          paste(Financing, airport, period, sep = '|')) |>
+        dplyr::pull(Lookup_key))) {
+  stop('Acquisition selector source does not contain every financing case.')
+}
+results_headers <- c(Financing = 'Financing scenario', column_headers[results_cols[-1L]])
 results_headers[c('net_financing_cost_m',
                   'combined_net_financing_cost_proxy_m')] <-
   c('Existing net financing costs', 'Total net financing costs')
@@ -77,18 +112,19 @@ res_ncol <- ncol(results)
 for (r in 1:3) openxlsx::mergeCells(wb, acq_sheet,
   cols = 1:res_ncol, rows = r)
 openxlsx::writeData(wb, acq_sheet,
-  'Airport acquisition counterfactual | acquisition financing (central scenario)',
+  'Airport acquisition counterfactual | all three financing scenarios',
   startRow = 1)
 openxlsx::writeData(wb, acq_sheet,
-  '22.5x EBITDA | 60% new borrowing | 5.5% interest | all money in millions of 2025 CAD',
+  'All three financing cases shown for each airport and period; millions of 2025 CAD.',
   startRow = 2)
 openxlsx::writeData(wb, acq_sheet,
   'Acquisition-adjusted EBTDA = reported EBITDA + eliminated rent - existing net financing - new acquisition interest. Profit targets and taxes are on the next sheet.',
   startRow = 3)
 openxlsx::writeData(wb, acq_sheet, results, startRow = 4, withFilter = TRUE)
+
 openxlsx::setColWidths(wb, acq_sheet, cols = 1, widths = 22)
-openxlsx::setColWidths(wb, acq_sheet, cols = 2:3, widths = 13)
-openxlsx::setColWidths(wb, acq_sheet, cols = 4:res_ncol, widths = 19)
+openxlsx::setColWidths(wb, acq_sheet, cols = 2:4, widths = c(18,13,13))
+openxlsx::setColWidths(wb, acq_sheet, cols = 5:res_ncol, widths = 19)
 openxlsx::setColWidths(wb, acq_sheet,
   cols = match(c('equity_purchase_consideration_m','valuation_ebitda_m'),
                results_cols), widths = 22)
@@ -107,7 +143,7 @@ results_header_groups <- list(
     'rent_adjusted_pre_tax_income_m','purchase_adjusted_pre_tax_income_m')
 )
 stopifnot(setequal(unlist(results_header_groups, use.names = FALSE),
-                   results_cols[-(1:3)]))
+                   results_cols[-(1:4)]))
 for (group in names(results_header_groups)) {
   stage_style <- switch(group, acquisition = head_acquisition,
     financing = head_financing, earnings = head_earnings)
@@ -116,7 +152,11 @@ for (group in names(results_header_groups)) {
     gridExpand = TRUE)
 }
 openxlsx::addStyle(wb, acq_sheet, num_style, rows = 5:(nrow(results)+4L),
-  cols = 4:res_ncol, gridExpand = TRUE)
+  cols = 5:res_ncol, gridExpand = TRUE)
+openxlsx::addStyle(wb, acq_sheet,
+  openxlsx::createStyle(border = 'top', borderColour = '#B0BAC5'),
+  rows = 5L + seq.int(3L, nrow(results)-1L, by = 3L),
+  cols = seq_len(res_ncol), gridExpand = TRUE, stack = TRUE)
 style_airport_periods(acq_sheet, results, 5L, res_ncol)
 openxlsx::addStyle(wb, acq_sheet,
   openxlsx::createStyle(fontSize = 15, textDecoration = 'bold',
@@ -127,11 +167,11 @@ openxlsx::addStyle(wb, acq_sheet,
 openxlsx::addStyle(wb, acq_sheet,
   openxlsx::createStyle(fontSize = 10, fontColour = '#445569',
                         textDecoration = 'italic'), rows = 3, cols = 1)
-openxlsx::freezePane(wb, acq_sheet, firstActiveRow = 5, firstActiveCol = 4)
+openxlsx::freezePane(wb, acq_sheet, firstActiveRow = 5, firstActiveCol = 5)
 
 # Reuse the original 21-column profitability presentation sequence.
-# The three sensitivities are inserted as ROWS after the baseline 15% case.
-profitability <- central_profit |>
+# The three sensitivities remain rows after the baseline 15% case.
+make_profitability_presentation <- function(d) d |>
   transmute(
     Airport = airport,
     `Year / period` = year_label,
@@ -157,6 +197,27 @@ profitability <- central_profit |>
     `Estimated corporate tax` = estimated_tax_m,
     `New after-tax profit` = counterfactual_after_tax_income_m,
     `Achieved after-tax margin` = achieved_net_margin)
+profitability <- make_profitability_presentation(central_profit)
+profitability_all <- make_profitability_presentation(profitability_nine) |>
+  mutate(Financing = finance_name(profitability_nine$purchase_multiple),
+         .before = 1L) |>
+  mutate(Lookup_key = paste(Financing, Airport, `Year / period`,
+                            `Profitability objective`, sep = '|'),
+         .before = 1L) |>
+  select(-Financing)
+# Derive a complete grid of 540 lookup keys (including BIG4 sensitivities).
+expected_profit_keys <- tidyr::expand_grid(
+  Financing = financing_choices, Airport = c(can_airports, 'BIG4'),
+  Period = period_levels,
+  Objective = unique(profitability_nine$profitability_objective)
+) |>
+  transmute(Lookup_key = paste(Financing, Airport, Period, Objective, sep = '|'))
+if (nrow(profitability_all) != 540L || ncol(profitability_all) != 22L ||
+    anyNA(profitability_all$Lookup_key) ||
+    anyDuplicated(profitability_all$Lookup_key) ||
+    !setequal(profitability_all$Lookup_key, expected_profit_keys$Lookup_key)) {
+  stop('Profitability selector source keys are incomplete.', call. = FALSE)
+}
 stopifnot(ncol(profitability) == 21L, nrow(profitability) == 180L)
 profit_individual <- profitability |> filter(Airport != 'BIG4')
 profit_big4 <- profitability |> filter(Airport == 'BIG4') |>
@@ -176,7 +237,7 @@ prof_sheet <- 'Profitability requirements'
 add_acquisition_worksheet(wb, prof_sheet, gridLines = FALSE)
 prof_cols <- ncol(profit_individual)
 intro <- c(
-  'Airport profitability requirements | six independent targets plus three 15% operating sensitivities, central acquisition scenario',
+  'Airport profitability requirements | selectable financing and nine profitability objectives',
   'Annual and pooled monetary figures: millions of 2025 CAD. Per-passenger figures: 2025 CAD. Currency units omitted from headers.',
   '1-2. Recover nonnegative pre-tax earnings (break even), then restore historical pre-tax earnings, with a zero floor for an observed loss.',
   '3-6. Test 15%, 20%, 25% and 30% AFTER-TAX margins. Convert the desired net margin into a pre-tax margin using the statutory tax rate.',
@@ -184,8 +245,44 @@ intro <- c(
   'All nine rows are independent. Extra revenue = initial pre-tax shortfall / shortfall closed per new dollar. Savings reduce the shortfall before solving. No fee or demand forecast is implied.'
 )
 for (r in seq_along(intro)) {
-  openxlsx::mergeCells(wb, prof_sheet, cols = 1:12, rows = r)
-  openxlsx::writeData(wb, prof_sheet, intro[[r]], startRow = r)
+  if (r == 2L) {
+    openxlsx::mergeCells(wb, prof_sheet, cols = 4:12, rows = r)
+    openxlsx::writeData(wb, prof_sheet, 'Finance case', startRow = 2L)
+    openxlsx::writeData(wb, prof_sheet, 'Central',
+                        startRow = 2L, startCol = 2L)
+    openxlsx::writeData(wb, prof_sheet,
+      'Annual and pooled amounts: millions of 2025 CAD; per passenger: 2025 CAD.',
+      startRow = 2L, startCol = 4L)
+  } else {
+    openxlsx::mergeCells(wb, prof_sheet, cols = 1:12, rows = r)
+    openxlsx::writeData(wb, prof_sheet, intro[[r]], startRow = r)
+  }
+}
+# Each presentation has its OWN financing selector.
+openxlsx::writeData(wb, prof_sheet, financing_choices,
+  startCol = 50L, startRow = 3L, colNames = FALSE)
+openxlsx::dataValidation(wb, prof_sheet, cols = 2L, rows = 2L,
+  type = 'list', value = '$AX$3:$AX$5')
+openxlsx::addStyle(wb, prof_sheet,
+  openxlsx::createStyle(fgFill = '#FFF3D5', textDecoration = 'bold',
+                        fontColour = '#193954'),
+  rows = 2L, cols = 2L, stack = TRUE)
+
+# Static R source for every financing and profitability objective.
+prof_src_start <- 27L  # AA key; AB:AV 21 presentation values
+prof_src_first <- 9L
+prof_src_last <- prof_src_first + nrow(profitability_all) - 1L
+openxlsx::writeData(wb, prof_sheet, profitability_all,
+  startCol = prof_src_start, startRow = prof_src_first - 1L)
+openxlsx::setColWidths(wb, prof_sheet, cols = 27:50,
+  widths = 16, hidden = TRUE)
+profit_lookup <- function(row, source_col) {
+  lookup <- sprintf(paste0('INDEX($%s$%d:$%s$%d,',
+    'MATCH($B$2&"|"&$A%d&"|"&$B%d&"|"&$C%d,',
+    '$AA$%d:$AA$%d,0))'),
+    source_col, prof_src_first, source_col, prof_src_last,
+    row, row, row, prof_src_first, prof_src_last)
+  sprintf('IF(COUNT(%s)=1,%s,"")', lookup, lookup)
 }
 openxlsx::setRowHeights(wb, prof_sheet, rows = 1:6,
   heights = c(32,30,33,33,36,36))
@@ -225,6 +322,14 @@ for (g in prof_groups) {
 openxlsx::setRowHeights(wb, prof_sheet, rows = prof_stage_row, heights = 24)
 openxlsx::writeData(wb, prof_sheet, profit_individual,
                     startRow = prof_header_row, withFilter = TRUE)
+# Airport/period/objective/method stay fixed. All numeric results follow B2.
+for (j in 5:prof_cols) {
+  source_col <- openxlsx::int2col(prof_src_start + j)
+  openxlsx::writeFormula(wb, prof_sheet,
+    x = vapply(prof_first_row:prof_last_row,
+               profit_lookup, character(1), source_col = source_col),
+    startCol = j, startRow = prof_first_row)
+}
 openxlsx::addStyle(wb, prof_sheet, head_style, rows = prof_header_row,
                    cols = 1:prof_cols, gridExpand = TRUE)
 for (g in prof_groups) openxlsx::addStyle(wb, prof_sheet, g$style,
@@ -278,6 +383,16 @@ openxlsx::setRowHeights(wb, prof_sheet,
   rows = c(sum_title, sum_note), heights = c(29,28))
 openxlsx::writeData(wb, prof_sheet, profit_big4,
                     startRow = sum_header, withFilter = FALSE)
+# The BIG4 block uses the SAME B2 selector as the individual airports.
+for (j in 5:ncol(profit_big4)) {
+  source_j <- match(names(profit_big4)[[j]], names(profitability))
+  stopifnot(length(source_j) == 1L, !is.na(source_j))
+  source_col <- openxlsx::int2col(prof_src_start + source_j)
+  openxlsx::writeFormula(wb, prof_sheet,
+    x = vapply(sum_first:sum_last,
+               profit_lookup, character(1), source_col = source_col),
+    startCol = j, startRow = sum_first)
+}
 openxlsx::addStyle(wb, prof_sheet, head_profit, rows = sum_header,
   cols = seq_len(ncol(profit_big4)), gridExpand = TRUE)
 openxlsx::setRowHeights(wb, prof_sheet, rows = sum_header, heights = 65)
@@ -295,8 +410,9 @@ openxlsx::addStyle(wb, prof_sheet,
   rows = sum_first + seq.int(9L, nrow(profit_big4)-1L, by = 9L),
   cols = seq_len(ncol(profit_big4)), gridExpand = TRUE, stack = TRUE)
 
-# The full-width formula audits were created above; the slim central-case
-# presentation tables deliberately do not repeat their calculations.
+# Full-width audits remain distinct. The two presentation selectors expose
+# all three finance cases without multiplying rows or recalculating the
+# independent R counterfactual model in Excel.
 
 notes_sheet <- 'Acquisition methodology'
 add_acquisition_worksheet(wb, notes_sheet, gridLines = FALSE)
@@ -318,13 +434,15 @@ openxlsx::addStyle(wb, notes_sheet, pct_style, rows = 4:6,
 method_notes <- tibble::tribble(
   ~Topic, ~Interpretation,
   'Analysis order',
-    'The Profitability bridge and Scenario comparison connect Canadian and Australian operating profitability to the separate acquisition financing and profitability scenarios. The underlying financial and acquisition models are not recalculated.',
+    'The presentation tabs progress from observed total financial results to per-passenger rates, acquisition financing, profitability requirements, interactive bridge and full scenario comparison. Acquisition financing shows all 60 cases; Profitability requirements (B2) and Profitability bridge (B3) retain independent selectors. Their underlying R financial and acquisition models are not recalculated.',
   'Australian EBITDA benchmark',
     'The benchmark equals the sum of EBITDA across BNE, MEL, PER and SYD divided by the sum of the matching EBITDA operating-revenue denominators, all in 2025 CAD. It is revenue-weighted, not an average of airport EBITDA percentages or net-profit margins.',
   'Benchmark selector',
     'The interactive bridge allows a constant 2023-25 pooled Australian EBITDA margin or a matching annual Australian EBITDA margin. For the three-year pooled Canadian period, both settings use the same pooled Australian benchmark.',
   'Scenario comparison worksheet',
-    'One filterable R-calculated row for each of 540 combinations: five Canadian airport groups, four periods, three finance cases and nine profitability objectives. The Australian reference is year-matched (pooled for 2023-25). It shows EBITDA margins before and after rent elimination, after operating savings, and after required additional revenue, plus the revenue uplift in 2025 CAD millions, per passenger and relative to existing total revenue. These are static values readable without Excel formula recalculation.',
+    'One filterable R-calculated row for each of 540 combinations (five airport groups, four periods, three financing cases, nine profitability objectives). The expanded table includes passengers; observed revenue, EBITDA and exclusive aeronautical/parking/other non-aeronautical sources; purchase valuation, new debt and interest; initial post-purchase pre-tax profit; EBITDA margin stages; required revenue and achieved net margin. The Australian benchmark is year-matched (pooled for 2023-25). These static values do not require Excel formula recalculation.',
+  'Observed revenue components',
+    'non_aero_minus_parking = non_aero_revenue - parking_transport_revenue. Parking includes ground transportation; the residual is only calculated for non-missing source components, including in pooled periods and the BIG4 aggregate. The three exclusive categories help assess possible sources of additional revenue but do not constitute an allocation or fee forecast.',
   'Operating benchmark revenue',
     'For a target margin b, Canadian revenue R and rent-adjusted EBITDA E, revenue-to-profit conversion c, and savings S, the required incremental revenue is MAX(0,(bR-E-S)/(c-b)). A margin above c would make the positive-revenue solution infeasible.',
   'Private-acquisition revenue gap',
@@ -354,7 +472,7 @@ method_notes <- tibble::tribble(
   'What is excluded',
     'No investment-demand response, fee forecast, principal amortization, transaction fees, investor IRR, working capital, forward demand growth or full cash-flow coverage model is included.',
   'Audit vs presentation',
-    'The two slim central-case presentation sheets reuse the standalone audit column selections; profitability adds three 15% sensitivity rows. The scenario comparison is an R-calculated static table. The separate full-width acquisition and profitability audits retain all three financing scenarios and linked Excel formulas. Excel recalculation is required for formula results.'
+    'Acquisition financing shows all 60 cases grouped by airport and period, with three financing scenarios adjacent. Profitability requirements retains its Central-default dropdown, including the BIG4 summary. The final Scenario comparison has all 540 cases as fixed R values. The separate formula audits retain all cases and require Excel recalculation.'
 )
 openxlsx::writeData(wb, notes_sheet, method_notes, startRow = 9)
 openxlsx::addStyle(wb, notes_sheet,
