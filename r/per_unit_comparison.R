@@ -373,21 +373,20 @@ if (!all(mandatory_aus %in% names(aus_fin))) {
   stop('ACCC supplementary financial export is missing: ',
        paste(setdiff(mandatory_aus, names(aus_fin)), collapse = ', '))
 }
-# Check whether supplementary data distinguish landside revenue.
-has_landside_detail <- all(c('landside_revenue',
-                             'parking_transport_revenue') %in% names(aus_fin))
-if (!has_landside_detail) {
-  warning('ACCC financial workbook has no updated landside/parking-transport ',
-          'categories; leaving these and non_aero_minus_parking as NA.')
-  for (nm in c('landside_revenue', 'parking_transport_revenue')) {
-    if (!nm %in% names(aus_fin)) aus_fin[[nm]] <- NA_real_
-  }
+# A parking-and-ground-transportation subtotal is required for the
+# explicit residual. A missing total is not reconstructed from parking alone.
+if (!'parking_transport_revenue' %in% names(aus_fin)) {
+  warning('ACCC financial workbook lacks parking_transport_revenue; ',
+          'non_aero_minus_parking will remain missing.')
+  aus_fin$parking_transport_revenue <- NA_real_
+}
+if (!'landside_revenue' %in% names(aus_fin)) {
+  aus_fin$landside_revenue <- NA_real_
 }
 aus_fin <- aus_fin |>
   mutate(commercial_revenue = total_revenue - aero_revenue,
-         non_aero_minus_parking = if (has_landside_detail) {
-           commercial_revenue - parking_transport_revenue
-         } else NA_real_)
+         non_aero_minus_parking =
+           commercial_revenue - parking_transport_revenue)
 
 fy_end <- function(x) {
   x <- as.character(x)
