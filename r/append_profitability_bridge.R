@@ -822,9 +822,9 @@ comparison_groups <- list(
        style = head_acquisition),
   list(from = 27L, to = 27L, label = 'SCENARIO TOTAL REVENUE',
        style = head_revenue),
-  list(from = 28L, to = 33L, label = 'CANADIAN 2025 REVENUE MIX',
+  list(from = 28L, to = 33L, label = 'ADDITIONAL REVENUE ALLOCATED BY CANADIAN 2025 REVENUE SHARES',
        style = head_earnings),
-  list(from = 34L, to = 39L, label = 'AUSTRALIAN FY2015-2025 GROWTH',
+  list(from = 34L, to = 39L, label = 'ADDITIONAL REVENUE ALLOCATED BY AUSTRALIAN FY2015-2025 REAL REVENUE GROWTH',
        style = head_revenue)
 )
 for (g in comparison_groups) {
