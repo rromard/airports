@@ -149,7 +149,11 @@ if (run_financial_comparison) {
         'output/airport_comparison/airport_financial_comparison_with_acquisition_2023_2025.xlsx',
         'output/airport_comparison/profitability_bridge/australian_ebitda_benchmarks.csv',
         'output/airport_comparison/profitability_bridge/profitability_bridge_scenarios_long.csv',
-        'output/airport_comparison/profitability_bridge/profitability_bridge_chart_long.csv')),
+        'output/airport_comparison/profitability_bridge/profitability_bridge_chart_long.csv',
+        'output/airport_comparison/profitability_bridge/revenue_allocation_source_audit.csv',
+        'output/airport_comparison/profitability_bridge/revenue_allocation_shares.csv',
+        'output/airport_comparison/profitability_bridge/revenue_allocation_scenarios_long.csv',
+        'output/airport_comparison/profitability_bridge/revenue_allocation_chart_long.csv')),
     bindings = list(include_acquisition = run_acquisition_model))
 }
 
