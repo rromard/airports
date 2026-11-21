@@ -96,9 +96,9 @@ write_audit_table <- function(sheet,source,columns,headers,title,title_row,
        columns=columns)
 }
 
-acq_audit_sheet <- 'Acquisition audit'
+acq_audit_sheet <- 'Acquisition calculations'
 create_audit_sheet(acq_audit_sheet,
-  'Acquisition audit | valuation, debt and post-acquisition earnings',
+  'Acquisition calculations | valuation, debt and post-acquisition earnings',
   'Two separate, formula-driven tables: annual first, pooled second. Pooled inputs link to CPI-adjusted annual rows. Three financing scenarios.',
   length(acquisition_audit_cols))
 
@@ -299,9 +299,9 @@ profit_audit_headers <- c(
 )
 stopifnot(identical(names(profit_audit_headers),profit_audit_cols),
   length(profit_audit_cols)==29L)
-profit_audit_sheet <- 'Profitability audit'
+profit_audit_sheet <- 'Profitability calculations'
 create_audit_sheet(profit_audit_sheet,
-  'Profitability audit | break even, restore, then four net-margin targets',
+  'Profitability calculations | break even, restore, then four net-margin targets',
   'Two independent formula tables (annual and pooled). The first two rows per airport use fixed pre-tax targets; the last four use after-tax margins on enlarged revenue.',
   length(profit_audit_cols))
 profit_audit_pct <- c('target_net_margin','statutory_tax_rate',
