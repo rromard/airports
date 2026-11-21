@@ -444,7 +444,7 @@ method_notes <- tibble::tribble(
   'Observed revenue components',
     'non_aero_minus_parking = non_aero_revenue - parking_transport_revenue. Parking includes ground transportation; the residual is only calculated for non-missing source components, including in pooled periods and the BIG4 aggregate. The three exclusive categories provide the source definitions for the illustrative allocation stage, but are not fee forecasts.',
   'Illustrative required-revenue allocation',
-    'The thirteen rightmost columns of Scenario comparison present counterfactual total revenue (observed plus additional revenue), then allocate the already-solved Additional revenue value across three non-overlapping categories under both methods, in totals and per-passenger rates. Canadian 2025 mix weights are each category share of the pooled observed revenue of YYC, YUL, YVR and YYZ. Australian FY2015-2025 growth weights are each category share of the summed, inflation-adjusted revenue increase from FY2014-15 to FY2024-25 at BNE, MEL, PER and SYD. These are alternative allocations, not additional financing cases or forecasts of prices, demand or pass-through.',
+    'The fourteen rightmost columns of Scenario comparison present counterfactual total revenue (observed plus additional revenue) and its per-passenger rate, then allocate the already-solved Additional revenue value across three non-overlapping categories under both methods, in totals and per-passenger rates. Canadian 2025 mix weights are each category share of the pooled observed revenue of YYC, YUL, YVR and YYZ. Australian FY2015-2025 growth weights are each category share of the summed, inflation-adjusted revenue increase from FY2014-15 to FY2024-25 at BNE, MEL, PER and SYD. These are alternative allocations, not additional financing cases or forecasts of prices, demand or pass-through.',
   'Revenue allocation labels and impact',
     'total_aero includes Canadian AIF; parking_transport_revenue includes ground/landside transport; non_aero_minus_parking includes other non-aeronautical receipts and is not synonymous with retail sales or commercial rental income. The first two categories have identifiable passenger cost channels; the incidence of other non-aeronautical charges cannot be quantified with these accounts. A revenue allocation percentage is NOT a percentage of costs ultimately paid by passengers.',
   'Revenue allocation data and audits',
@@ -458,11 +458,11 @@ method_notes <- tibble::tribble(
   'Bridge Datawrapper exports',
     'The profitability_bridge folder contains independent long-form CSVs for all three financing cases, nine profitability objectives, four periods, five airport groups and two Australian benchmark modes, plus separate revenue-allocation share, audit, scenario and chart datasets. The existing chart metric list is editable near the top of append_profitability_bridge.R.',
   'Monetary units',
-    'All production financial amounts, including both formula audit sheets, are in 2025 CAD millions; required revenue per passenger is in 2025 CAD. Observed financial-comparison sheets use their documented units.',
+    'All production financial amounts, including both formula calculation sheets, are in 2025 CAD millions; required revenue per passenger is in 2025 CAD. Observed financial-comparison sheets use their documented units.',
   'Annual and pooled',
     'Annual financial flows and balances are converted from each year to 2025 CAD. The 2023-25 pooled period sums three years of financial flows and passenger traffic, averages adjusted debt/cash stocks and uses annual-equivalent EBITDA for purchase valuation.',
-  'Formula audit inflation',
-    'Acquisition and profitability formula audits use already adjusted annual 2025-CAD inputs. The CPI reference column is informative: pooled Excel formulas sum adjusted annual values and do NOT apply CPI a second time. The standalone audit workbook retains nominal annual inputs.',
+  'Formula calculation inflation',
+    'Acquisition and profitability formula calculation sheets use already adjusted annual 2025-CAD inputs. The CPI reference column is informative: pooled Excel formulas sum adjusted annual values and do NOT apply CPI a second time. The standalone audit workbook retains nominal annual inputs.',
   'Finance cases',
     'Low-cost, Central and High-cost are three paired illustrative packages of sale multiples, purchase borrowing shares and interest rates, not observed privatization transactions or independently varied cross-products.',
   'Profitability objectives',
@@ -478,7 +478,7 @@ method_notes <- tibble::tribble(
   'What is excluded',
     'No investment-demand response, fee forecast, principal amortization, transaction fees, investor IRR, working capital, forward demand growth or full cash-flow coverage model is included.',
   'Audit vs presentation',
-    'Acquisition financing shows all 60 cases grouped by airport and period, with three financing scenarios adjacent. Profitability requirements retains its Central-default dropdown, including the BIG4 summary. The final Scenario comparison has all 540 cases as fixed R values. The separate formula audits retain all cases and require Excel recalculation.'
+    'Acquisition financing shows all 60 cases grouped by airport and period, with three financing scenarios adjacent. Profitability requirements retains its Central-default dropdown, including the BIG4 summary. The final Scenario comparison has all 540 cases as fixed R values. The separate formula calculation sheets retain all cases and require Excel recalculation.'
 )
 openxlsx::writeData(wb, notes_sheet, method_notes, startRow = 9)
 openxlsx::addStyle(wb, notes_sheet,
