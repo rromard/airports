@@ -717,9 +717,10 @@ bridge_comparison <- comparison_source |>
       non_aero_minus_parking * 1e6 / passengers
   ) |>
   mutate(
-    `Counterfactual total revenue` = comparison_source$counterfactual_revenue_m,
+    `Counterfactual total revenue` =
+      `Observed revenue` + `Additional revenue`,
     `Counterfactual total revenue per passenger` =
-      comparison_source$counterfactual_revenue_m * 1e6 / passengers
+      `Counterfactual total revenue` * 1e6 / Passengers
   ) |>
   left_join(allocation_wide,
     by = c('Airport' = 'airport', 'Period' = 'period',
