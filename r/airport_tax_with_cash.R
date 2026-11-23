@@ -340,7 +340,17 @@ tax_rates <- reg_profit |>
   arrange(airport, fyear) |>
   relocate(fyear, year_end, period)
 
-write_csv(tax_rates, here("output", "taxation", "aus_airport_tax_rates.csv"))
+# Keep the presentation-facing tax CSV's established columns, adding the
+# original tax-gap calculation (Sydney: 30% of positive operating profit
+# less cash tax; others: accounting tax expense less cash tax).
+write_csv(
+  tax_rates |>
+    select(airport, fyear, total_revenue, profit_before_tax,
+           tax_expense, cash_tax_paid, tax_payable,
+           gross_tax_expense_rate, net_tax_payable_rate,
+           cash_tax_profit_rate, cash_tax_revenue_ratio, tax_gap),
+  here("output", "taxation", "aus_airport_tax_rates.csv")
+)
 
 tax_rates |> view()
   ggplot(aes(year_end, tax_gap, fill = airport)) +
