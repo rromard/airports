@@ -153,7 +153,9 @@ if (run_financial_comparison) {
         'output/airport_comparison/profitability_bridge/revenue_allocation_source_audit.csv',
         'output/airport_comparison/profitability_bridge/revenue_allocation_shares.csv',
         'output/airport_comparison/profitability_bridge/revenue_allocation_scenarios_long.csv',
-        'output/airport_comparison/profitability_bridge/revenue_allocation_chart_long.csv')),
+        'output/airport_comparison/profitability_bridge/revenue_allocation_chart_long.csv',
+        'output/airport_comparison/profitability_bridge/revenue_impacts_2025.csv',
+        'output/airport_comparison/profitability_bridge/revenue_impacts_2025_long.csv')),
     bindings = list(include_acquisition = run_acquisition_model))
 }
 
