@@ -388,9 +388,9 @@ if (bridge_export_chart_long) {
     file.path(bridge_output_dir, 'profitability_bridge_chart_long.csv'))
 }
 
-# Excel formula table: one row for each unique original model case (540).
-# Changing the benchmark selector updates the formula results, without
-# executing R or touching the separately audited acquisition model.
+# Excel formula table: one row per original model case (540).
+# Pooled and year-matched Australian benchmarks have independent formulas;
+# neither requires a selector or a recalculation of the R acquisition model.
 calc_input <- bridge_inputs |>
   arrange(factor(scenario_name, levels = c('Low-cost','Central','High-cost')),
           factor(year_label, levels = c('2023','2024','2025','2023-25')),
@@ -773,6 +773,6 @@ if (!bridge_integrated_mode) {
   standalone_path <- file.path(bridge_output_dir,
     'airport_profitability_bridge_standalone_2023_2025.xlsx')
   openxlsx::saveWorkbook(wb, standalone_path, overwrite = TRUE)
-  message('Saved standalone profitability workbook: ', standalone_path)
+  message('Saved standalone revenue impacts workbook: ', standalone_path)
   message('CSV exports: ', bridge_output_dir)
 }
