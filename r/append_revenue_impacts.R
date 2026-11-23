@@ -120,23 +120,26 @@ if (nrow(impact_long) != 1080L ||
        call. = FALSE)
 }
 
+# Keep comparable revenue categories together for each metric, rather
+# than placing seven metrics inside each category. Excel table column names
+# are unique, while the stacked group headers carry units and context.
 impact_sections <- c(
-  total = 'Total revenue',
+  total = 'Total',
   total_aero = 'Aeronautical',
-  parking_transport_revenue = 'Parking and transport',
-  non_aero_minus_parking = 'Other non-aeronautical'
+  parking_transport_revenue = 'Parking & transport',
+  non_aero_minus_parking = 'Other non-aero'
 )
 impact_metrics <- c(
-  observed_category_m = 'Observed ($m)',
-  additional_category_m = 'Additional ($m)',
-  counterfactual_category_m = 'Counterfactual ($m)',
-  observed_per_pax = 'Observed ($/passenger)',
-  additional_per_pax = 'Additional ($/passenger)',
-  counterfactual_per_pax = 'Counterfactual ($/passenger)',
-  increase_pct = 'Increase vs observed (%)'
+  observed_category_m = 'Observed',
+  additional_category_m = 'Additional',
+  counterfactual_category_m = 'Counterfactual',
+  observed_per_pax = 'Observed per pax',
+  additional_per_pax = 'Additional per pax',
+  counterfactual_per_pax = 'Counterfactual per pax',
+  increase_pct = 'Increase'
 )
-impact_measure_keys <- unlist(lapply(names(impact_sections), function(category) {
-  paste0(category, '__', names(impact_metrics))
+impact_measure_keys <- unlist(lapply(names(impact_metrics), function(metric) {
+  paste0(names(impact_sections), '__', metric)
 }), use.names = FALSE)
 impact_wide <- impact_long |>
   dplyr::select(
@@ -155,8 +158,8 @@ impact_wide <- impact_long |>
 names(impact_wide) <- c(
   'Airport', 'Period', 'Financing', 'Profitability objective',
   'Allocation method',
-  unlist(lapply(unname(impact_sections), function(section) {
-    paste(section, unname(impact_metrics), sep = ' | ')
+  unlist(lapply(unname(impact_metrics), function(metric) {
+    paste(metric, unname(impact_sections))
   }), use.names = FALSE)
 )
 impact_objectives <- comparison_source |>
@@ -219,15 +222,37 @@ openxlsx::addStyle(wb, revenue_impacts_sheet,
                         fontColour = '#445569'), rows = 2L, cols = 1L)
 openxlsx::setRowHeights(wb, revenue_impacts_sheet, rows = c(1L,2L),
                         heights = c(34,46))
-impact_groups <- list(
+# Two-level group headers: dollar amounts, passenger rates, and uplift,
+# with all four categories adjacent within each comparison measure.
+impact_supergroups <- list(
   list(from = 1L, to = 5L, label = 'SCENARIO', style = head_acquisition),
-  list(from = 6L, to = 12L, label = 'TOTAL REVENUE', style = head_revenue),
-  list(from = 13L, to = 19L, label = 'AERONAUTICAL', style = head_earnings),
-  list(from = 20L, to = 26L, label = 'PARKING & GROUND TRANSPORT',
-       style = head_financing),
-  list(from = 27L, to = 33L, label = 'OTHER NON-AERONAUTICAL',
+  list(from = 6L, to = 17L, label = 'REVENUE · MILLIONS OF 2025 CAD',
+       style = head_revenue),
+  list(from = 18L, to = 29L, label = 'REVENUE PER PASSENGER · 2025 CAD',
+       style = head_earnings),
+  list(from = 30L, to = 33L, label = 'INCREASE VS OBSERVED · %',
        style = head_profit)
 )
+impact_groups <- list(
+  list(from = 6L, to = 9L, label = 'OBSERVED', style = head_revenue),
+  list(from = 10L, to = 13L, label = 'ADDITIONAL', style = head_revenue),
+  list(from = 14L, to = 17L, label = 'COUNTERFACTUAL',
+       style = head_revenue),
+  list(from = 18L, to = 21L, label = 'OBSERVED', style = head_earnings),
+  list(from = 22L, to = 25L, label = 'ADDITIONAL', style = head_earnings),
+  list(from = 26L, to = 29L, label = 'COUNTERFACTUAL',
+       style = head_earnings),
+  list(from = 30L, to = 33L, label = 'PERCENTAGE INCREASE',
+       style = head_profit)
+)
+for (g in impact_supergroups) {
+  openxlsx::mergeCells(wb, revenue_impacts_sheet,
+                       cols = g$from:g$to, rows = 4L)
+  openxlsx::writeData(wb, revenue_impacts_sheet, g$label,
+                      startRow = 4L, startCol = g$from)
+  openxlsx::addStyle(wb, revenue_impacts_sheet, g$style,
+    rows = 4L, cols = g$from:g$to, gridExpand = TRUE, stack = TRUE)
+}
 for (g in impact_groups) {
   openxlsx::mergeCells(wb, revenue_impacts_sheet,
                        cols = g$from:g$to, rows = 5L)
@@ -242,27 +267,26 @@ for (g in impact_groups) {
     rows = 5L:6L, cols = g$from:g$to,
     gridExpand = TRUE, stack = TRUE)
 }
+openxlsx::addStyle(wb, revenue_impacts_sheet, head_acquisition,
+  rows = 5L:6L, cols = 1:5, gridExpand = TRUE, stack = TRUE)
 impact_first <- 7L
 impact_last <- impact_first + nrow(impact_wide) - 1L
 openxlsx::addStyle(wb, revenue_impacts_sheet, num_style,
-  rows = impact_first:impact_last,
-  cols = c(6:8,13:15,20:22,27:29),
+  rows = impact_first:impact_last, cols = 6:17,
   gridExpand = TRUE, stack = TRUE)
 openxlsx::addStyle(wb, revenue_impacts_sheet, per_pax_style,
-  rows = impact_first:impact_last,
-  cols = c(9:11,16:18,23:25,30:32),
+  rows = impact_first:impact_last, cols = 18:29,
   gridExpand = TRUE, stack = TRUE)
 openxlsx::addStyle(wb, revenue_impacts_sheet,
   openxlsx::createStyle(numFmt = '0.0"%"'),
-  rows = impact_first:impact_last,
-  cols = c(12,19,26,33),
+  rows = impact_first:impact_last, cols = 30:33,
   gridExpand = TRUE, stack = TRUE)
 openxlsx::setColWidths(wb, revenue_impacts_sheet,
   cols = 1:5, widths = c(13,11,15,43,47))
 openxlsx::setColWidths(wb, revenue_impacts_sheet,
-  cols = 6:33, widths = 26)
+  cols = 6:33, widths = 24)
 openxlsx::setRowHeights(wb, revenue_impacts_sheet,
-  rows = c(5L,6L), heights = c(28,72))
+  rows = c(4L,5L,6L), heights = c(26,26,52))
 impact_airport_change <- which(!duplicated(impact_wide$Airport))
 if (length(impact_airport_change) != 5L) {
   stop('Revenue impacts have unexpected airport group boundaries.',
