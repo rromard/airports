@@ -410,9 +410,9 @@ openxlsx::addStyle(wb, prof_sheet,
   rows = sum_first + seq.int(9L, nrow(profit_big4)-1L, by = 9L),
   cols = seq_len(ncol(profit_big4)), gridExpand = TRUE, stack = TRUE)
 
-# Full-width audits remain distinct. The two presentation selectors expose
-# all three finance cases without multiplying rows or recalculating the
-# independent R counterfactual model in Excel.
+# Full-width calculation sheets remain distinct. The profitability
+# requirements presentation keeps its own selector; the scenario and
+# revenue-impact results are independent static R values.
 
 notes_sheet <- 'Acquisition methodology'
 add_acquisition_worksheet(wb, notes_sheet, gridLines = FALSE)
@@ -434,11 +434,11 @@ openxlsx::addStyle(wb, notes_sheet, pct_style, rows = 4:6,
 method_notes <- tibble::tribble(
   ~Topic, ~Interpretation,
   'Analysis order',
-    'The presentation tabs progress from observed total financial results to per-passenger rates, acquisition financing, profitability requirements, interactive bridge and full scenario comparison. Acquisition financing shows all 60 cases; Profitability requirements (B2) and Profitability bridge (B3) retain independent selectors. Their underlying R financial and acquisition models are not recalculated.',
+    'Revenue impacts is the first results tab: a focused 2025 summary with observed, additional and counterfactual revenues, their per-passenger rates and each category uplift. Other presentation tabs provide observed comparisons, acquisition financing, profitability requirements and all 540 Scenario comparison cases. Profitability requirements retains its selector; the R models are not recalculated in Excel.',
   'Australian EBITDA benchmark',
     'The benchmark equals the sum of EBITDA across BNE, MEL, PER and SYD divided by the sum of the matching EBITDA operating-revenue denominators, all in 2025 CAD. It is revenue-weighted, not an average of airport EBITDA percentages or net-profit margins.',
-  'Benchmark selector',
-    'The interactive bridge allows a constant 2023-25 pooled Australian EBITDA margin or a matching annual Australian EBITDA margin. For the three-year pooled Canadian period, both settings use the same pooled Australian benchmark.',
+  'Australian benchmark calculations',
+    'Bridge calculations independently shows BOTH the 2023-25 pooled Australian EBITDA margin and the period-matched Australian margin, together with their revenue requirements and gaps. There is no external selector or dependency on a presentation worksheet. For the pooled Canadian period, both benchmarks coincide.',
   'Scenario comparison worksheet',
     'One filterable R-calculated row for each of 540 combinations (five airport groups, four periods, three financing cases, nine profitability objectives). The expanded table includes passengers; observed revenue, EBITDA and exclusive aeronautical/parking/other non-aeronautical sources; purchase valuation, new debt and interest; initial post-purchase pre-tax profit; EBITDA margin stages; required revenue and achieved net margin. The Australian benchmark is year-matched (pooled for 2023-25). These static values do not require Excel formula recalculation.',
   'Observed revenue components',
@@ -446,17 +446,17 @@ method_notes <- tibble::tribble(
   'Illustrative required-revenue allocation',
     'The fourteen rightmost columns of Scenario comparison present counterfactual total revenue (observed plus additional revenue) and its per-passenger rate, then allocate the already-solved Additional revenue value across three non-overlapping categories under both methods, in totals and per-passenger rates. Canadian 2025 mix weights are each category share of the pooled observed revenue of YYC, YUL, YVR and YYZ. Australian FY2015-2025 growth weights are each category share of the summed, inflation-adjusted revenue increase from FY2014-15 to FY2024-25 at BNE, MEL, PER and SYD. These are alternative allocations, not additional financing cases or forecasts of prices, demand or pass-through.',
   'Revenue allocation labels and impact',
-    'total_aero includes Canadian AIF; parking_transport_revenue includes ground/landside transport; non_aero_minus_parking includes other non-aeronautical receipts and is not synonymous with retail sales or commercial rental income. The first two categories have identifiable passenger cost channels; the incidence of other non-aeronautical charges cannot be quantified with these accounts. A revenue allocation percentage is NOT a percentage of costs ultimately paid by passengers.',
-  'Revenue allocation data and audits',
-    'The profitability_bridge directory contains four revenue_allocation CSVs: full Canadian/ACCC source audit, six allocation shares, complete 3,240-row scenario allocations (including per-passenger rates and counterfactual totals), and 2025-only visualization data. The ACCC historical series is already in constant FY2024-25 AUD; only unitless growth shares are applied to Canadian 2025-CAD revenue requirements. Both three-category allocations are validated against every scenario total.',
+    'total_aero includes Canadian AIF; parking_transport_revenue includes ground/landside transport; non_aero_minus_parking includes other non-aeronautical receipts and is not synonymous with retail sales or commercial rental income. Revenue impacts compares each allocated addition with observed 2025 revenue in the SAME category: (additional / observed) x 100. These are not fee increases or estimates of costs ultimately borne by passengers.',
+  'Revenue allocation data and calculations',
+    'The profitability_bridge directory retains four revenue_allocation CSVs: Canadian/ACCC source calculations, six allocation shares, complete 3,240-row scenario allocations, and 2025 chart data. It also exports revenue_impacts_2025.csv (270 wide scenario/method rows) and revenue_impacts_2025_long.csv (1,080 category rows including total). The ACCC history is in constant FY2024-25 AUD; only unitless shares are applied to 2025-CAD requirements. All category amounts are reconciled to the scenario total.',
   'Operating benchmark revenue',
     'For a target margin b, Canadian revenue R and rent-adjusted EBITDA E, revenue-to-profit conversion c, and savings S, the required incremental revenue is MAX(0,(bR-E-S)/(c-b)). A margin above c would make the positive-revenue solution infeasible.',
   'Private-acquisition revenue gap',
     'A positive private-objective-minus-Australian-benchmark revenue gap means the private objective requires more additional revenue than reaching the Australian EBITDA margin under the SAME revenue-conversion and savings assumptions. It is not a forecast of airport charges or private investment.',
   'Operating versus financing measures',
     'Scenario-adjusted EBITDA = reported EBITDA + eliminated federal ground rent + operating savings + contribution from new revenue. Scenario-adjusted EBTDA additionally deducts existing net financing costs and new acquisition interest; do not compare this directly to Australian EBITDA as though both were operating margins.',
-  'Bridge Datawrapper exports',
-    'The profitability_bridge folder contains independent long-form CSVs for all three financing cases, nine profitability objectives, four periods, five airport groups and two Australian benchmark modes, plus separate revenue-allocation share, audit, scenario and chart datasets. The existing chart metric list is editable near the top of append_profitability_bridge.R.',
+  'Benchmark and chart exports',
+    'The profitability_bridge folder keeps both Australian benchmark modes for all three financing cases, nine profitability objectives, four periods and five airport groups. Separate wide and long-form 2025 Revenue impacts CSVs support direct use in R and charting. The legacy benchmark chart metric list is editable near the top of append_profitability_bridge.R.',
   'Monetary units',
     'All production financial amounts, including both formula calculation sheets, are in 2025 CAD millions; required revenue per passenger is in 2025 CAD. Observed financial-comparison sheets use their documented units.',
   'Annual and pooled',
@@ -477,8 +477,8 @@ method_notes <- tibble::tribble(
     'Four airports are modelled separately. BIG4 required revenue, income taxes, savings and expenses are sums of airport-specific results; no fictitious common tax rate is imposed.',
   'What is excluded',
     'No investment-demand response, fee forecast, principal amortization, transaction fees, investor IRR, working capital, forward demand growth or full cash-flow coverage model is included.',
-  'Audit vs presentation',
-    'Acquisition financing shows all 60 cases grouped by airport and period, with three financing scenarios adjacent. Profitability requirements retains its Central-default dropdown, including the BIG4 summary. The final Scenario comparison has all 540 cases as fixed R values. The separate formula calculation sheets retain all cases and require Excel recalculation.'
+  'Calculations versus presentation',
+    'Acquisition financing shows all 60 cases, with three financing scenarios adjacent. Profitability requirements retains its Central-default dropdown including BIG4. Scenario comparison has all 540 cases as fixed R values; Revenue impacts shows both allocation methods in 270 filterable rows. Bridge calculations contains both Australian benchmark methods without a selector and requires Excel recalculation.'
 )
 openxlsx::writeData(wb, notes_sheet, method_notes, startRow = 9)
 openxlsx::addStyle(wb, notes_sheet,
@@ -492,24 +492,24 @@ openxlsx::freezePane(wb, notes_sheet, firstActiveRow = 3)
 
 # FINAL ANALYTIC BRIDGE | DISPLAY AND EXPORT -----------------------------
 # The bridge consumes the same validated, already-adjusted R model and the
-# matched Australian EBITDA comparison. The module adds three worksheets and
-# chart-friendly independent CSV results; the acquisition math is unchanged.
+# matched Australian EBITDA comparison. The module adds Revenue impacts,
+# Scenario comparison and Bridge calculations, plus independent CSV results.
 # Isolate the integrated-mode flag so direct source() calls to the bridge
 # remain standalone even later in the same R session.
 bridge_sheets <- local({
   bridge_integrated_mode <- TRUE
   sys.source(here::here('r', 'append_profitability_bridge.R'),
              envir = environment())
-  c(bridge_sheet, bridge_comparison_sheet, bridge_calc_sheet)
+  c(revenue_impacts_sheet, bridge_comparison_sheet, bridge_calc_sheet)
 })
-bridge_sheet <- bridge_sheets[[1L]]
+revenue_impacts_sheet <- bridge_sheets[[1L]]
 bridge_comparison_sheet <- bridge_sheets[[2L]]
 bridge_calc_sheet <- bridge_sheets[[3L]]
 
 # The main production workbook builder applies the single final 18-tab
 # presentation order and palette and saves the integrated workbook.
 # This module adds the acquisition, profitability and bridge sheets only.
-new_sheets <- c(bridge_sheet, bridge_comparison_sheet, acq_sheet, prof_sheet,
+new_sheets <- c(revenue_impacts_sheet, bridge_comparison_sheet, acq_sheet, prof_sheet,
                 bridge_calc_sheet, acq_audit_sheet, profit_audit_sheet,
                 notes_sheet)
 if (length(new_sheets) != 8L || anyDuplicated(new_sheets) ||
