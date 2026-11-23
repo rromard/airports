@@ -91,6 +91,33 @@ export(scale, "01_airport_scale_2025.csv", "Canada–Australia comparability",
   "Comparison annual absolute and per-passenger CSVs",
   "Eight airports; passenger volume millions. Australian fiscal years end June; Canadian years end December. Not proof of identical airport markets.")
 
+# BIG4 country aggregates: sum levels first, then recompute weighted
+# shares/margins. Do not add percentage margins or average airport-level shares.
+scale_big4 <- scale |>
+  group_by(country) |>
+  summarise(
+    airport_group = "BIG4",
+    passengers_m = sum(passengers_m),
+    total_revenue = sum(total_revenue),
+    total_aero = sum(total_aero),
+    commercial_revenue = sum(commercial_revenue),
+    operating_expenses = sum(operating_expenses),
+    ebitda = sum(ebitda),
+    .groups = "drop"
+  ) |>
+  mutate(
+    aeronautical_share_pct = 100 * total_aero / total_revenue,
+    ebitda_margin_pct = 100 * ebitda / total_revenue,
+    revenue_per_passenger = total_revenue / passengers_m,
+    reporting_basis = if_else(country == "Australia",
+      "Financial year ending June 2025", "Calendar year 2025"))
+if (nrow(scale_big4) != 2L || any(!is.finite(scale_big4$passengers_m)))
+  stop("Invalid BIG4 comparison aggregate.", call. = FALSE)
+export(scale_big4, "01b_big4_aggregate_2025.csv",
+  "Canada–Australia comparability",
+  "Aggregated from 2025 annual absolute and per-passenger comparisons",
+  "Four-airport country totals; shares and margins computed from sums. Financial years differ across countries.")
+
 # 2. ACTUAL 2015-25 REAL AERONAUTICAL YIELDS, with 2015 index.
 # Canadian aeronautical series INCLUDES AIF; ACCC Australian series is
 # aeronautical revenue. These are revenue proxies, not posted airport fees.
