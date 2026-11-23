@@ -263,8 +263,7 @@ openxlsx::setColWidths(wb, revenue_impacts_sheet,
   cols = 6:33, widths = 26)
 openxlsx::setRowHeights(wb, revenue_impacts_sheet,
   rows = c(5L,6L), heights = c(28,72))
-impact_airport_change <- which(impact_wide$Airport !=
-  dplyr::lag(impact_wide$Airport))
+impact_airport_change <- which(!duplicated(impact_wide$Airport))
 if (length(impact_airport_change) != 5L) {
   stop('Revenue impacts have unexpected airport group boundaries.',
        call. = FALSE)
