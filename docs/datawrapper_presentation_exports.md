@@ -19,12 +19,12 @@ The script writes flat UTF-8 CSVs to `output/presentation_data/`. It **does not*
 | Three acquisition cases | `05_acquisition_assumptions.csv` and `06_acquisition_scenarios_2025.csv` | Assumption comparison and acquisition cost sensitivities |
 | Profit targets | `07_profitability_targets_2025.csv` | Small multiples: extra revenue total / passenger by airport and objective |
 | Revenue composition | `08_revenue_impacts_2025.csv` | Observed vs counterfactual category revenue |
-| Cap-then-shock history | `09_legacy_cap_then_shock_paths.csv` (optional) | Illustrative counterfactual trajectories; **not observed Australian history** |
+| Observed cap/monitoring history | `09_observed_nominal_australia_1998_2007.csv` (optional) | ACCC historical nominal aeronautical yield; **not inflation-adjusted** |\n| Cap-then-shock sensitivity | `09_legacy_cap_then_shock_paths.csv` (optional) | Illustrative Canadian counterfactual trajectories; **not observed Australian history** |
 | Quality | `10_australia_quality_series.csv` (optional) | Time series of one carefully chosen ACCC quality measure |
 
-Only the last two exports are optional: the historical trajectory requires the separately disabled legacy revenue-growth model, and quality requires the parsed ACCC RDS. The current production pipeline is sufficient for the first eight exports.
+The observed historical export requires the separately prepared `output/accc_legacy_vector_selected.csv`; the historical trajectory requires the separately disabled legacy revenue-growth model; quality requires the parsed ACCC RDS. The current production pipeline is sufficient for the first eight exports.
 
-**Historical scope:** The actual 2015–2025 series belongs to the modern monitoring-period comparison. The 1998–2007 cap-and-shock sequence should use original ACCC price-cap and monitoring reports, with explicit evidence about price-cap expiry and the difference between observed and extrapolated years. The optional legacy trajectory is a **Canadian counterfactual**, not Australian observed history.
+**Historical scope:** The actual 2015–2025 series belongs to the modern monitoring-period comparison. The 1998–2007 cap-and-shock sequence is drawn from original ACCC/FAC digitization when available. That file is in nominal AUD and **must be deflated before being plotted as real growth**, with explicit notes about price-cap expiry, the Sydney 1998 source discontinuity, and the difference between observed and extrapolated years. The optional legacy trajectory is a **Canadian counterfactual**, not Australian observed history.
 
 **Quality:** ACCC observations identify source (airline/passenger/objective), terminal, category, measure and fiscal year. Never average noncomparable measures or combine airline with passenger responses mechanically. See [ACCC 2024–25 monitoring](https://www.accc.gov.au/about-us/publications/serial-publications/airport-monitoring-reports/airport-monitoring-report-2024-25).
 
