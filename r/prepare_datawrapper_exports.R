@@ -66,6 +66,65 @@ if (!identical(annual_abs[annual_keys], annual_pp[annual_keys]))
 if (!setequal(annual_abs$airport, all_airports))
   stop("Unexpected airport population in annual comparison.", call. = FALSE)
 
+# COUNTRY-LEVEL COMPARABILITY: fixed-source, publishable context tables.
+# Maintain bibliographic URLs and qualification notes in data/comparability/.
+# These country and airline figures DO NOT share the airport-financial
+# reporting conventions; keep years and definitions next to each observation.
+context_dir <- here::here("data", "comparability")
+country_context <- input_csv(file.path(context_dir, "country_context_2025.csv"))
+require_columns(country_context, c("country", "population_2025",
+  "land_area_km2", "population_density_2025_per_km2",
+  "gdp_2025_usd_trillion_rounded", "gdp_per_capita_2025_usd",
+  "source_population", "source_land_area", "source_gdp"),
+  "country-level context")
+check_keys(country_context, "country", "country context")
+if (!setequal(country_context$country, c("Canada", "Australia")) ||
+    any(abs(country_context$population_2025 / country_context$land_area_km2 -
+      country_context$population_density_2025_per_km2) > 0.0001))
+  stop("Invalid population/land-area/density comparability inputs.")
+export(country_context, "00a_country_context_2025.csv",
+  "Canada–Australia country comparability",
+  "World Bank population, land area and 2025 national accounts; URLs recorded in rows",
+  "Land area (not total including lakes); midyear population; nominal 2025 GDP in USD. GDP in trillions is rounded to 0.1 and is not a precision estimate.")
+
+airlines <- input_csv(file.path(context_dir,
+  "domestic_airline_capacity_2022.csv"))
+require_columns(airlines, c("country", "airline_group",
+  "domestic_seat_capacity_share_pct", "year", "measurement_period", "source"),
+  "harmonized airline shares")
+check_keys(airlines, c("country", "airline_group"), "airline shares")
+airline_totals <- airlines |>
+  group_by(country) |>
+  summarise(total = sum(domestic_seat_capacity_share_pct),
+    .groups = "drop")
+if (nrow(airlines) != 6L || nrow(airline_totals) != 2L ||
+    any(abs(airline_totals$total - 100) > 0.01) ||
+    any(airlines$year != 2022L))
+  stop("Airline domestic seat-capacity comparisons fail checks.")
+export(airlines, "00b_domestic_airline_capacity_2022.csv",
+  "Canada–Australia airline market structure",
+  "ACCC June 2022 airline competition report, Figure 11",
+  "Same scheduled domestic seat capacity measure in both countries for week of 27 June 2022. Shares are grouped by two major firms vs all other carriers. Not 2025 market shares.")
+airline_top2 <- airlines |>
+  filter(airline_group != "Other carriers") |>
+  group_by(country) |>
+  summarise(two_largest_groups_share_pct =
+    sum(domestic_seat_capacity_share_pct), year = first(year),
+    .groups = "drop")
+export(airline_top2, "00c_top_two_airline_share_2022.csv",
+  "Canada–Australia airline market structure",
+  "ACCC June 2022 airline competition report, Figure 11",
+  "Harmonized two-largest-airline-group shares of domestic scheduled seat capacity for a single week in 2022. Not directly comparable to more recent Australian passenger-share measures.")
+
+policy <- input_csv(file.path(context_dir, "policy_context.csv"))
+require_columns(policy, c("topic", "country", "statement",
+  "source", "interpretation"), "policy context")
+check_keys(policy, c("topic", "country"), "policy context")
+export(policy, "00d_policy_context.csv",
+  "Canada–Australia policy and institutional context",
+  "Transport Canada, Australian Productivity Commission, ACCC and parliamentary sources; URLs in rows",
+  "Qualitative source notes; selected institutional analogies and essential differences, not quantified variables.")
+
 # 1. COMPARABILITY: size and revenue composition, same financial comparison
 # basis as the published workbook. FY 2024-25 Australia versus CY 2025 Canada.
 scale <- annual_abs |>
