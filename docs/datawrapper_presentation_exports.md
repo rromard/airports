@@ -8,6 +8,28 @@ source(here::here("r", "prepare_datawrapper_exports.R"))
 
 The script writes flat UTF-8 CSVs to `output/presentation_data/`. It **does not** recalculate the acquisition model, alter formulas, or rebuild an Excel workbook. `00_data_catalog.csv` is the authoritative output/source register: rows with `status = ready` were written and rows with `status = external source needed` identify the missing or optional part of the evidence.
 
+## Country and institutional comparability
+
+The added `data/comparability/` files feed four prefixed Datawrapper outputs:
+- `00a_country_context_2025.csv`: population, land area, density, nominal GDP and GDP per capita from World Bank national comparators. The 2025 GDP totals are deliberately rounded to the nearest US$0.1 trillion.
+- `00b_domestic_airline_capacity_2022.csv`: exact same-week, same-unit domestic capacity comparison from **ACCC, Airline competition in Australia (June 2022), Figure 11**.
+- `00c_top_two_airline_share_2022.csv`: harmonized duopoly shares from those observations: Canada = **76.5%** (Air Canada group 43.7%, WestJet group 32.8%), Australia = **92.8%** (Qantas group 62.4%, Virgin group 30.4%).
+- `00d_policy_context.csv`: sourced, qualitative comparisons of Westminster-style federal parliamentary structures; dispersed national population; public ground ownership/long-term leases; Canadian not-for-profit airport authorities versus Australian for-profit airport concessionaires; Australian initial CPI-X caps and transition to price monitoring in 2002.
+
+The ACCC's 2022 report explicitly compares Canada and Australia as having similar geographic and economic characteristics (pp. 18–21). That report is a stronger methodological justification than treating national size alone as proof of equivalence:
+https://www.accc.gov.au/system/files/Airline%20competition%20in%20Australia%20report%20%28June%202022%29.pdf
+
+**Important differences:** Canada has a much larger international/transborder share of airline traffic, while Australia's passenger market is more domestic; Australia's two dominant airline groups have a larger share than Canada's. Neither national population density nor national airline concentration automatically identifies airport-level competitive conditions. Keep this separate from already prepared airport comparisons. For a political/institutional argument, the important contrast is not a matching policy regime but the choice of divergent ownership and profit incentives in otherwise reasonably comparable settings.
+
+The airline duopoly comparison intentionally uses **2022**, when ACCC Figure 11 provides a harmonized method for both countries. Transport Canada 2024 domestic seat-kilometre and ACCC October 2025 domestic passenger figures are newer, but different indicators and should not be put into an apples-to-apples percentage chart.
+
+Sources:
+- [World Bank Australia–Canada indicators](https://data.worldbank.org/?locations=AU-CA), [World Bank land area](https://data.worldbank.org/indicator/AG.LND.TOTL.K2)
+- [ACCC June 2022 direct cross-country comparison](https://www.accc.gov.au/system/files/Airline%20competition%20in%20Australia%20report%20%28June%202022%29.pdf)
+- [Transport Canada: Canadian NAS airport ownership](https://www.canada.ca/en/transport-canada/news/2025/03/policy-statement-on-investment-at-national-airports-system-airports-operated-by-airport-authorities.html)
+- [ACCC: end of initial airport price caps](https://www.accc.gov.au/media-release/final-price-cap-reports-for-phase-i-privatised-airports)
+- [Australian Productivity Commission: privatization and regulation](https://www.pc.gov.au/media-speeches/speeches/airport-regulation/)
+
 ## Storyboard and outputs
 
 | Section | Datawrapper-ready export | Suggested display |
@@ -34,6 +56,6 @@ The historical exports reuse the existing `airport_revenue_counterfactual.R` and
 
 ## Remaining data acquisition
 
-The historical cap-period revenue and ATO cash-tax series are **already assembled** in the repository. Outstanding work is primarily (1) harmonized traffic composition, international/domestic mix and catchment comparability; (2) selecting a defensible common ACCC quality measure for comparison; and (3) editorial review of ATO legal-entity coverage and the varying definitions of tax benchmarks. Avoid silently substituting mixed accounting measures.
+The historical cap-period revenue, tax series, and country-level comparability figures are **already assembled** in the repository or this PR. Remaining work is principally (1) selecting a defensible common ACCC quality measure for comparison; (2) optional traffic composition detail beyond the ACCC's published Canada–Australia comparisons; and (3) editorial review of ATO legal-entity coverage and the varying definitions of tax benchmarks. Avoid silently substituting mixed accounting measures.
 
 The script requires R packages `dplyr`, `tidyr`, `readr` and `here`. It validates keys and expected counts on critical inputs. It deliberately does not mix financial-year and calendar-year values into a single pseudo-calendar time series.
