@@ -5,10 +5,11 @@
 # accc_regulatory_ebitda.R, and per_unit_comparison.R.
 #
 # Produces ten observed-finance sheets and eight analytical sheets in the
-# integrated 18-sheet production workbook (scenario comparison, selectable
-# revenue impacts, scenario comparison, bridge calculations, two acquisition presentations,
-# two formula calculation sheets and acquisition methodology). The initial sheets contain comparisons, calculations,
-# supporting sources, methodology, reconciliation. Supporting sheets carry
+# integrated 18-sheet production workbook (Revenue impacts, Scenario
+# comparison, Bridge calculations, two acquisition presentations,
+# two formula calculation sheets and acquisition methodology).
+# The initial sheets contain comparisons, calculations, supporting sources,
+# methodology and reconciliation. Supporting sheets carry
 # descriptive source identifiers, file types and clickable links. The
 # comparison sheets stay wide, source-free, with annual and pooled values.
 # Excel formulas use multiline key-based lookups and simple arithmetic, left to right.
