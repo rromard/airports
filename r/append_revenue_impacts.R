@@ -8,11 +8,11 @@ impact_basis <- bridge_comparison |>
   dplyr::filter(Period == '2025') |>
   dplyr::transmute(
     airport = Airport, period = Period, financing = Financing,
-    profitability_objective = \`Profitability objective\`,
-    observed_total_m = \`Observed revenue\`,
-    observed_aero_m = \`Aeronautical revenue\`,
-    observed_parking_m = \`Parking and ground transportation revenue\`,
-    observed_other_m = \`Non-aeronautical revenue minus parking\`,
+    profitability_objective = `Profitability objective`,
+    observed_total_m = `Observed revenue`,
+    observed_aero_m = `Aeronautical revenue`,
+    observed_parking_m = `Parking and ground transportation revenue`,
+    observed_other_m = `Non-aeronautical revenue minus parking`,
     passenger_check = Passengers
   )
 impact_keys <- c('airport', 'period', 'financing',
@@ -172,8 +172,8 @@ impact_wide <- impact_wide |>
   dplyr::arrange(
     factor(Airport, levels = c(can_airports, 'BIG4')),
     factor(Financing, levels = c('Low-cost', 'Central', 'High-cost')),
-    factor(\`Profitability objective\`, levels = impact_objectives),
-    factor(\`Allocation method\`,
+    factor(`Profitability objective`, levels = impact_objectives),
+    factor(`Allocation method`,
       levels = c('Canadian 2025 revenue mix',
                  'Australian FY2015-2025 real revenue growth'))
   )
