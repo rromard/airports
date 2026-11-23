@@ -410,9 +410,9 @@ openxlsx::addStyle(wb, prof_sheet,
   rows = sum_first + seq.int(9L, nrow(profit_big4)-1L, by = 9L),
   cols = seq_len(ncol(profit_big4)), gridExpand = TRUE, stack = TRUE)
 
-# Full-width audits remain distinct. The two presentation selectors expose
-# all three finance cases without multiplying rows or recalculating the
-# independent R counterfactual model in Excel.
+# Full-width calculation sheets remain distinct. The profitability
+# requirements presentation keeps its own selector; the scenario and
+# revenue-impact results are independent static R values.
 
 notes_sheet <- 'Acquisition methodology'
 add_acquisition_worksheet(wb, notes_sheet, gridLines = FALSE)
