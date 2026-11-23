@@ -12,7 +12,7 @@ The script writes flat UTF-8 CSVs to `output/presentation_data/`. It **does not*
 
 | Section | Datawrapper-ready export | Suggested display |
 |---|---|---|
-| Canada–Australia comparison | `01_airport_scale_2025.csv` | Eight airport passenger volumes, airport revenue mix, or EBITDA margin |
+| Canada–Australia comparison | `01_airport_scale_2025.csv`, `01b_big4_aggregate_2025.csv` | Eight individual airports and the two four-airport country aggregates; passenger volumes, revenue mix and EBITDA margins |
 | Australian real revenue | `02_actual_aeronautical_yield_2015_2025.csv` | 2015=100 indexed lines for real aeronautical revenue per passenger |
 | Current finances | `03_current_financials_2025.csv` | Small multiples of revenue, spending, EBITDA, EBIT, after-tax profit |
 | Tax | `04_australia_accounting_tax_2023_2025.csv` | Accounting tax expense vs pre-tax profit, with major caveats |
