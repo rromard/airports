@@ -5,7 +5,7 @@
 #
 # Direct execution reads SAVED 2023-25 comparison CSVs and the saved
 # acquisition RDS (no financial model regeneration and no global objects).
-# It saves a standalone three-sheet workbook and three CSVs.
+# It saves a standalone three-sheet workbook and chart-ready CSVs.
 #
 # When sourced by append_acquisition_audits.R with bridge_integrated_mode
 # set TRUE, the exact same calculation / worksheet code appends the three
@@ -106,13 +106,13 @@ bridge_chart_metrics <- c(
 )
 bridge_export_chart_long <- TRUE
 
-bridge_sheet <- 'Profitability bridge'
+revenue_impacts_sheet <- 'Revenue impacts'
 bridge_comparison_sheet <- 'Scenario comparison'
 bridge_calc_sheet <- 'Bridge calculations'
 bridge_modes <- c('Pooled 2023-25', 'Year-matched')
 bridge_output_dir <- file.path(out_dir, 'profitability_bridge')
 dir.create(bridge_output_dir, showWarnings = FALSE, recursive = TRUE)
-stopifnot(!any(c(bridge_sheet, bridge_comparison_sheet,
+stopifnot(!any(c(revenue_impacts_sheet, bridge_comparison_sheet,
                  bridge_calc_sheet) %in% names(wb)))
 
 required_compare <- c('country', 'airport', 'year', 'period_type',
@@ -391,12 +391,6 @@ if (bridge_export_chart_long) {
 # Excel formula table: one row for each unique original model case (540).
 # Changing the benchmark selector updates the formula results, without
 # executing R or touching the separately audited acquisition model.
-bridge_options <- bridge_inputs |>
-  filter(scenario_name == 'Central', airport == 'YYC',
-         year_label == '2023-25') |>
-  arrange(threshold_order) |>
-  pull(profitability_objective)
-stopifnot(length(bridge_options) == 9L, !anyDuplicated(bridge_options))
 calc_input <- bridge_inputs |>
   arrange(factor(scenario_name, levels = c('Low-cost','Central','High-cost')),
           factor(year_label, levels = c('2023','2024','2025','2023-25')),
@@ -421,20 +415,25 @@ stopifnot(nrow(calc_input) == 540L, !anyDuplicated(calc_input$Key),
 calc_output_headers <- c(
   'Base EBITDA after savings', 'Scenario total revenue', 'Scenario EBITDA',
   'Scenario EBITDA margin', 'Scenario EBTDA', 'Scenario EBTDA margin',
-  'Selected Australian benchmark margin', 'Australian benchmark revenue requirement',
-  'Australian benchmark revenue per passenger', 'Revenue gap versus Australian benchmark',
-  'Revenue gap per passenger', 'Observed EBITDA margin',
+  'Pooled Australian benchmark margin', 'Pooled benchmark revenue requirement',
+  'Pooled benchmark revenue per passenger', 'Pooled revenue gap',
+  'Pooled revenue gap per passenger', 'Observed EBITDA margin',
   'Rent-adjusted EBITDA margin', 'Purchase-adjusted EBTDA margin',
-  'Australian benchmark gap versus rent-adjusted (pp)'
+  'Pooled benchmark gap versus rent-adjusted (pp)',
+  'Year-matched Australian benchmark margin',
+  'Year-matched benchmark revenue requirement',
+  'Year-matched benchmark revenue per passenger',
+  'Year-matched revenue gap', 'Year-matched revenue gap per passenger',
+  'Year-matched benchmark gap versus rent-adjusted (pp)'
 )
 calc_data <- as.data.frame(calc_input)
 for (nm in calc_output_headers) calc_data[[nm]] <- NA_real_
 add_acquisition_worksheet(wb, bridge_calc_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, bridge_calc_sheet,
-  'Profitability bridge | transparent 2025-CAD formula calculations',
+  'Australian EBITDA benchmarks | transparent 2025-CAD calculations',
   startRow = 1)
 openxlsx::writeData(wb, bridge_calc_sheet,
-  '540 unique model cases. Input columns A:S come from validated R; columns T:AH are Excel formulas. Australian benchmark follows the selector on Profitability bridge.',
+  '540 model cases. Inputs A:S; formulas T:AN. Both Australian benchmarks (pooled 2023-25 and period matched) are calculated independently, without a presentation-sheet selector.',
   startRow = 2)
 openxlsx::writeDataTable(wb, bridge_calc_sheet, calc_data, startRow = 8,
   tableName = 'BridgeCalculationInputs', tableStyle = 'TableStyleMedium2')
@@ -449,8 +448,7 @@ formulas <- list(
   W = function(r) sprintf('IF(U%d>0,V%d/U%d,NA())',r,r,r),
   X = function(r) sprintf('V%d-K%d-L%d',r,r,r),
   Y = function(r) sprintf('IF(U%d>0,X%d/U%d,NA())',r,r,r),
-  Z = function(r) sprintf('IF(%s!$B$5="Pooled 2023-25",R%d,S%d)',
-                         paste0("'", bridge_sheet, "'"),r,r),
+  Z = function(r) sprintf('R%d',r),
   AA = function(r) {
     if (calc_input$Airport[[r-calc_first+1L]] == 'BIG4') {
       # Do not use SUMIFS on the complete AA column: that would include
@@ -475,7 +473,28 @@ formulas <- list(
   AE = function(r) sprintf('I%d/H%d',r,r),
   AF = function(r) sprintf('(I%d+J%d)/H%d',r,r,r),
   AG = function(r) sprintf('(I%d+J%d-K%d-L%d)/H%d',r,r,r,r,r),
-  AH = function(r) sprintf('(Z%d-AF%d)*100',r,r)
+  AH = function(r) sprintf('(Z%d-AF%d)*100',r,r),
+  AI = function(r) sprintf('S%d',r),
+  AJ = function(r) {
+    if (calc_input$Airport[[r-calc_first+1L]] == 'BIG4') {
+      i <- r - calc_first + 1L
+      constituents <- which(
+        calc_input$Airport %in% can_airports &
+        calc_input$Period == calc_input$Period[[i]] &
+        calc_input$Financing == calc_input$Financing[[i]] &
+        calc_input$Objective == calc_input$Objective[[i]])
+      stopifnot(length(constituents) == 4L)
+      paste0('SUM(', paste0('AJ', calc_first + constituents - 1L,
+                            collapse = ','), ')')
+    } else {
+      sprintf('IF(M%d>AI%d,MAX(0,(AI%d*H%d-T%d)/(M%d-AI%d)),IF(T%d>=AI%d*H%d,0,NA()))',
+              r,r,r,r,r,r,r,r,r,r)
+    }
+  },
+  AK = function(r) sprintf('AJ%d*1000000/G%d',r,r),
+  AL = function(r) sprintf('O%d-AJ%d',r,r),
+  AM = function(r) sprintf('AL%d*1000000/G%d',r,r),
+  AN = function(r) sprintf('(AI%d-AF%d)*100',r,r)
 )
 stopifnot(length(formulas) == length(calc_output_headers))
 for (colname in names(formulas)) {
@@ -487,189 +506,18 @@ for (colname in names(formulas)) {
 openxlsx::setColWidths(wb, bridge_calc_sheet, cols = 1, widths = 67)
 openxlsx::setColWidths(wb, bridge_calc_sheet, cols = 2:6,
   widths = c(12,13,15,45,18))
-openxlsx::setColWidths(wb, bridge_calc_sheet, cols = 7:34, widths = 21)
+openxlsx::setColWidths(wb, bridge_calc_sheet, cols = 7:40, widths = 21)
 openxlsx::addStyle(wb, bridge_calc_sheet, pct_style,
-  rows = rr, cols = c(13,16,17,18,19,23,25,26,31,32,33),
+  rows = rr, cols = c(13,16,17,18,19,23,25,26,31,32,33,35),
   gridExpand = TRUE, stack = TRUE)
 openxlsx::addStyle(wb, bridge_calc_sheet, per_pax_style,
-  rows = rr, cols = c(28,30), gridExpand = TRUE, stack = TRUE)
+  rows = rr, cols = c(28,30,37,39), gridExpand = TRUE, stack = TRUE)
+openxlsx::addStyle(wb, bridge_calc_sheet,
+  openxlsx::createStyle(numFmt = '0.0 "pp"'), rows = rr,
+  cols = c(34,40), gridExpand = TRUE, stack = TRUE)
 openxlsx::setRowHeights(wb, bridge_calc_sheet, rows = 8, heights = 60)
 openxlsx::freezePane(wb, bridge_calc_sheet,
   firstActiveRow = calc_first, firstActiveCol = 7)
-
-# Main 20-row interactive table. Results use INDEX/MATCH formulas
-# referencing Bridge calculations, and refresh when a selector is changed.
-add_acquisition_worksheet(wb, bridge_sheet, gridLines = FALSE)
-openxlsx::writeData(wb, bridge_sheet,
-  'Canadian airport profitability | Australia benchmark and private acquisition bridge',
-  startRow = 1)
-openxlsx::writeData(wb, bridge_sheet,
-  'Finance case', startRow = 3, startCol = 1)
-openxlsx::writeData(wb, bridge_sheet,
-  'Profitability objective', startRow = 4, startCol = 1)
-openxlsx::writeData(wb, bridge_sheet,
-  'Australian benchmark', startRow = 5, startCol = 1)
-openxlsx::writeData(wb, bridge_sheet, 'Central', startRow = 3, startCol = 2)
-openxlsx::writeData(wb, bridge_sheet, bridge_options[[3L]],
-                    startRow = 4, startCol = 2)
-openxlsx::writeData(wb, bridge_sheet, bridge_modes[[1L]],
-                    startRow = 5, startCol = 2)
-openxlsx::writeData(wb, bridge_sheet,
-  'Annual and pooled amounts: millions of 2025 CAD; per-passenger: 2025 CAD. Positive revenue difference means the private objective requires MORE than the Australian EBITDA benchmark.',
-  startRow = 6)
-openxlsx::mergeCells(wb, bridge_sheet, cols = 1:20, rows = 1)
-openxlsx::mergeCells(wb, bridge_sheet, cols = 1:20, rows = 6)
-openxlsx::addStyle(wb, bridge_sheet,
-  openxlsx::createStyle(fontSize = 15, fontColour = '#193954',
-                        textDecoration = 'bold'), rows = 1, cols = 1)
-openxlsx::addStyle(wb, bridge_sheet,
-  openxlsx::createStyle(wrapText = TRUE, fontColour = '#445569'),
-  rows = 6, cols = 1)
-openxlsx::addStyle(wb, bridge_sheet,
-  openxlsx::createStyle(fgFill = '#FFF3D5', textDecoration = 'bold',
-    fontColour = '#193954'), rows = 3:5, cols = 2, gridExpand = TRUE)
-openxlsx::setRowHeights(wb, bridge_sheet, rows = c(1,6),
-                        heights = c(34,34))
-openxlsx::setColWidths(wb, bridge_sheet, cols = 1, widths = 28)
-openxlsx::setColWidths(wb, bridge_sheet, cols = 2, widths = 47)
-
-# Source lists for Excel data-validation drop-downs. Keep them on the same
-# sheet to avoid cross-sheet validation references; hide the helper columns.
-openxlsx::writeData(wb, bridge_sheet,
-  c('Low-cost', 'Central', 'High-cost'), startRow = 3, startCol = 27,
-  colNames = FALSE)
-openxlsx::writeData(wb, bridge_sheet, bridge_options,
-  startRow = 3, startCol = 28, colNames = FALSE)
-openxlsx::writeData(wb, bridge_sheet, bridge_modes,
-  startRow = 3, startCol = 29, colNames = FALSE)
-for (args in list(
-  list(row = 3L, range = '$AA$3:$AA$5'),
-  list(row = 4L, range = '$AB$3:$AB$11'),
-  list(row = 5L, range = '$AC$3:$AC$4')
-)) {
-  openxlsx::dataValidation(wb, bridge_sheet, cols = 2, rows = args$row,
-    type = 'list', value = args$range)
-}
-openxlsx::setColWidths(wb, bridge_sheet, cols = 27:29,
-                       widths = 15, hidden = TRUE)
-
-bridge_presentation_cols <- c(
-  'Airport', 'Period', 'Observed revenue', 'Observed EBITDA',
-  'Ground rent eliminated', 'Observed EBITDA margin',
-  'Rent-adjusted EBITDA margin', 'Australian EBITDA benchmark',
-  'Australian operating gap (pp)', 'New acquisition interest',
-  'Purchase-adjusted EBTDA margin', 'Private revenue requirement',
-  'Private revenue per passenger', 'Scenario-adjusted EBITDA margin',
-  'Scenario-adjusted EBTDA margin', 'Australian benchmark revenue requirement',
-  'Australian benchmark revenue per passenger', 'Extra revenue beyond Australian benchmark',
-  'Extra revenue beyond Australian benchmark per pax', 'Achieved after-tax margin'
-)
-bridge_presentation <- tidyr::expand_grid(
-  Airport = c(can_airports,'BIG4'),
-  Period = c('2023','2024','2025','2023-25')
-) |>
-  mutate(Period = as.character(Period))
-for (nm in bridge_presentation_cols[-(1:2)]) {
-  bridge_presentation[[nm]] <- NA_real_
-}
-bridge_presentation <- bridge_presentation[,bridge_presentation_cols]
-stopifnot(ncol(bridge_presentation) == 20L,
-          nrow(bridge_presentation) == 20L)
-bridge_header_row <- 9L
-bridge_first <- 10L
-bridge_last <- bridge_first + nrow(bridge_presentation) - 1L
-openxlsx::writeData(wb, bridge_sheet, bridge_presentation,
-                    startRow = bridge_header_row, withFilter = TRUE)
-bridge_groups <- list(
-  list(from=1L,to=5L,label='AIRPORT / OBSERVED FINANCES',style=head_acquisition),
-  list(from=6L,to=9L,label='AUSTRALIAN OPERATING BENCHMARK',style=head_earnings),
-  list(from=10L,to=11L,label='ACQUISITION FINANCING',style=head_financing),
-  list(from=12L,to=15L,label='PRIVATE PROFITABILITY',style=head_profit),
-  list(from=16L,to=20L,label='AUSTRALIAN BENCHMARK REVENUE AND GAP',style=head_revenue)
-)
-for (g in bridge_groups) {
-  openxlsx::mergeCells(wb, bridge_sheet, cols = g$from:g$to, rows = 8L)
-  openxlsx::writeData(wb, bridge_sheet, g$label,
-                      startRow = 8L, startCol = g$from)
-  openxlsx::addStyle(wb, bridge_sheet, g$style,
-    rows = 8L:bridge_header_row, cols = g$from:g$to,
-    gridExpand = TRUE)
-}
-openxlsx::setRowHeights(wb, bridge_sheet,
-  rows = c(8L, bridge_header_row), heights = c(26,68))
-openxlsx::setColWidths(wb, bridge_sheet, cols = 3:20, widths = 21)
-openxlsx::setColWidths(wb, bridge_sheet, cols = c(13,19), widths = 26)
-# INDEX/MATCH works in Excel and LibreOffice without newer _xlfn
-# function registration. Deliberately expose #N/A for missing keys.
-bridge_lookup <- function(r, source_col) {
-  sprintf(paste0(
-    'INDEX(\'Bridge calculations\'!$%s$%d:$%s$%d,',
-    'MATCH($A%d&"|"&$B%d&"|"&$B$3&"|"&$B$4,',
-    '\'Bridge calculations\'!$A$%d:$A$%d,0))'),
-    source_col, calc_first, source_col, calc_last,
-    r, r, calc_first, calc_last)
-}
-link_cols <- c(
-  C='H', D='I', E='J', F='AE', G='AF', H='Z', I='AH',
-  J='L', K='AG', L='O', N='W', O='Y', P='AA', Q='AB',
-  R='AC', S='AD', T='Q'
-)
-for (dest_col in names(link_cols)) {
-  formulas_col <- vapply(bridge_first:bridge_last, bridge_lookup,
-                        character(1), source_col = link_cols[[dest_col]])
-  openxlsx::writeFormula(wb, bridge_sheet, x = formulas_col,
-    startCol = match(dest_col,
-      vapply(seq_len(ncol(bridge_presentation)),
-             openxlsx::int2col, character(1))),
-    startRow = bridge_first)
-}
-# Assert that all twenty visible keys exist once in the 540-case
-# source table for every selectable scenario/objective, not just the default.
-bridge_test_keys <- tidyr::crossing(
-  Airport = c(can_airports, 'BIG4'),
-  Period = c('2023','2024','2025','2023-25'),
-  Financing = c('Low-cost','Central','High-cost'),
-  Objective = bridge_options
-) |>
-  dplyr::mutate(Key = paste(Airport, Period, Financing, Objective, sep = '|'))
-if (nrow(bridge_test_keys) != 540L ||
-    anyDuplicated(bridge_test_keys$Key) ||
-    !setequal(bridge_test_keys$Key, calc_input$Key)) {
-  stop('Profitability bridge lookup keys do not match the 540 source cases.',
-       call. = FALSE)
-}
-
-# Per-passenger private revenue is computed from the selected model source
-# row's passenger denominator; no independent passenger-level assumption.
-per_pax_formulas <- vapply(bridge_first:bridge_last, function(r) {
-  p <- bridge_lookup(r, 'G')
-  sprintf('L%d*1000000/(%s)',r,p)
-}, character(1))
-openxlsx::writeFormula(wb, bridge_sheet, x = per_pax_formulas,
-                       startCol = 13, startRow = bridge_first)
-bridge_percent_cols <- c(6,7,8,11,14,15,20)
-openxlsx::addStyle(wb, bridge_sheet, num_style,
-  rows = bridge_first:bridge_last, cols = 3:20, gridExpand = TRUE)
-openxlsx::addStyle(wb, bridge_sheet, pct_style,
-  rows = bridge_first:bridge_last, cols = bridge_percent_cols,
-  gridExpand = TRUE, stack = TRUE)
-openxlsx::addStyle(wb, bridge_sheet, per_pax_style,
-  rows = bridge_first:bridge_last, cols = c(13,17,19),
-  gridExpand = TRUE, stack = TRUE)
-openxlsx::addStyle(wb, bridge_sheet,
-  openxlsx::createStyle(numFmt='0.0 "pp"'),
-  rows = bridge_first:bridge_last, cols = 9,
-  gridExpand = TRUE, stack = TRUE)
-for (row in c(14L,18L,22L,26L)) {
-  openxlsx::addStyle(wb, bridge_sheet,
-    openxlsx::createStyle(border = 'top', borderColour = '#8695A4'),
-    rows = row, cols = 1:20, gridExpand = TRUE, stack = TRUE)
-}
-openxlsx::addStyle(wb, bridge_sheet,
-  openxlsx::createStyle(textDecoration = 'bold', fontColour = '#193954'),
-  rows = 26:29, cols = 1:20, gridExpand = TRUE, stack = TRUE)
-openxlsx::freezePane(wb, bridge_sheet,
-  firstActiveRow = bridge_first, firstActiveCol = 3)
 
 # Flat scenario comparison | 540 fully calculated, filterable R cases.
 # Use the same validated inputs and financing/profitability solutions as the
@@ -908,17 +756,17 @@ openxlsx::setColWidths(wb, bridge_comparison_sheet,
 openxlsx::freezePane(wb, bridge_comparison_sheet,
   firstActiveRow = comparison_first, firstActiveCol = 5)
 
-message('Prepared profitability bridge: 20 selectable Excel rows; ',
-        nrow(calc_data), ' formula audit cases; ',
+message('Prepared profitability benchmark calculations: ',
+        nrow(calc_data), ' formula cases; ',
         nrow(bridge_comparison), ' static scenario comparison rows; ',
         nrow(bridge_export), ' independent R scenario / benchmark rows; ',
         nrow(bridge_australia), ' Australian benchmark observations.')
 
-# Save only the small standalone workbook when executed directly.
+# Save the standalone results-and-calculations workbook when executed directly.
 # The integrated builder saves its expanded 18-sheet workbook separately.
 if (!bridge_integrated_mode) {
   openxlsx::worksheetOrder(wb) <- match(
-    c(bridge_sheet, bridge_comparison_sheet, bridge_calc_sheet), names(wb))
+    c(revenue_impacts_sheet, bridge_comparison_sheet, bridge_calc_sheet), names(wb))
   standalone_path <- file.path(bridge_output_dir,
     'airport_profitability_bridge_standalone_2023_2025.xlsx')
   openxlsx::saveWorkbook(wb, standalone_path, overwrite = TRUE)
