@@ -237,12 +237,14 @@ if (is.null(tax_rates)) {
     "Run the existing airport_tax_with_cash.R analysis, then rerun presentation exports. ACCC cash-flow tax paid, ATO tax payable, and accounting tax expense are distinct concepts.")
 } else {
   require_columns(tax_rates,
-    c("airport", "fyear", "year_end", "period", "total_revenue",
-      "operating_profit", "profit_before_tax", "tax_expense",
-      "cash_tax_paid", "tax_payable", "benchmark_profit",
-      "benchmark_tax", "tax_gap"), "Australian airport tax rates")
+    c("airport", "fyear", "total_revenue", "profit_before_tax",
+      "tax_expense", "cash_tax_paid", "tax_payable",
+      "gross_tax_expense_rate", "net_tax_payable_rate",
+      "cash_tax_profit_rate", "cash_tax_revenue_ratio", "tax_gap"),
+    "Australian airport tax rates")
   check_keys(tax_rates, c("airport", "fyear"), "Australian airport tax rates")
   export(tax_rates |>
+      mutate(year_end = as.integer(substr(fyear, 1L, 4L)) + 1L) |>
       arrange(airport, year_end),
     "04_australia_tax_cash_accounting_2016_2025.csv",
     "Australian airport taxation",
