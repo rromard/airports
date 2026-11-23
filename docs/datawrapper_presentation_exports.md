@@ -36,7 +36,7 @@ Sources:
 |---|---|---|
 | Canada–Australia comparison | `01_airport_scale_2025.csv`, `01b_big4_aggregate_2025.csv` | Eight individual airports and the two four-airport country aggregates; passenger volumes, revenue mix and EBITDA margins |
 | Australian real revenue | `02_actual_aeronautical_yield_2015_2025.csv` | 2015=100 indexed lines for real aeronautical revenue per passenger |
-| Current finances | `03_current_financials_2025.csv` | Small multiples of revenue, spending, EBITDA, EBIT, after-tax profit |
+| Current finances | `03_current_financials_2025.csv` | Small multiples of revenue, spending, EBITDA, EBIT, financing costs, after-tax profit, shareholder payouts and cash capital investment |
 | Tax | `04_australia_tax_cash_accounting_2016_2025.csv`, `04b_australia_ato_entities_2013_2025.csv` (from existing tax script) | ACCC cash tax, accounting tax expense, ATO tax payable and taxable income |
 | Three acquisition cases | `05_acquisition_assumptions.csv` and `06_acquisition_scenarios_2025.csv` | Assumption comparison and acquisition cost sensitivities |
 | Profit targets | `07_profitability_targets_2025.csv` | Small multiples: extra revenue total / passenger by airport and objective |
@@ -59,3 +59,53 @@ The historical exports reuse the existing `airport_revenue_counterfactual.R` and
 The historical cap-period revenue, tax series, and country-level comparability figures are **already assembled** in the repository or this PR. Remaining work is principally (1) selecting a defensible common ACCC quality measure for comparison; (2) optional traffic composition detail beyond the ACCC's published Canada–Australia comparisons; and (3) editorial review of ATO legal-entity coverage and the varying definitions of tax benchmarks. Avoid silently substituting mixed accounting measures.
 
 The script requires R packages `dplyr`, `tidyr`, `readr` and `here`. It validates keys and expected counts on critical inputs. It deliberately does not mix financial-year and calendar-year values into a single pseudo-calendar time series.
+
+
+## Observed shareholder payouts, cash capital investment and Sydney financing
+
+The final annual and pooled comparison tables retain their existing columns and add
+`shareholder_payouts` and `cash_capital_investment`. The annual absolute values
+are millions of 2025 CAD (the same price/currency basis as the revenue
+counterfactual); annual per-passenger values and three-year pooled measures use
+the existing conversion and pooling rules. The 2025 observations are also
+available as metrics in `03_current_financials_2025.csv` (`dw$financials_2025`).
+They are observed amounts, not forecasts, and are not deducted again from
+operating profit or inserted into the counterfactual model.
+
+- Canadian shareholder payouts are structural zeros. BNE/MEL/PER use the ACCC
+  reported dividends-paid line, with unreported dividends left missing. This
+  is not an exhaustive measure of all possible related-party payments.
+- Sydney payouts include ordinary cash dividends plus cash interest paid on
+  redeemable preference shares (RPS), excluding cash capital returns and
+  non-cash distributions/redemption. The source and reconciliation retain these
+  separately for audit. Payouts may relate to earnings in other periods.
+- Sydney's comparative financing costs and profit exclude RPS interest expense,
+  debt-cost amortisation and the 2025 non-cash redemption loss. Finance income,
+  swap movements and reported accounting tax remain unchanged. This is a
+  classification of earnings before shareholder remuneration, not a
+  hypothetical estimate of borrowing costs or tax under alternative ownership.
+  Other airports retain their prior income statement definitions; the ACCC
+  interest line does not separately identify interest income.
+- Cash capital investment is outlay on capital assets and investment property,
+  excluding separately identifiable intangible expenditure, borrowing costs,
+  grants and disposal proceeds (gross of grants and disposals). Canadian reports
+  sometimes bundle intangible and physical assets; Calgary's reported investment
+  is reduced by the positive change in related payables to estimate the cash
+  outlay. The preserved input CSV records report filename, PDF page and line
+  definition. This independent cash-flow measure uses annual-report consolidation
+  boundaries, not necessarily ACCC regulatory boundaries. Sydney uses SCACH
+  calendar years, with the existing Australian FY CPI and passenger convention.
+- `preserved_data/scach_income_verified_inputs_template.csv` is the versioned
+  SCACH source; the former local regulatory-accounts path remains a fallback.
+  `preserved_data/airport_cash_capital_investment_2023_2025.csv` records the
+  capital outlay inputs for all 24 airport-years.
+- `output/airport_comparison/sydney_financing_reconciliation_2023_2025.csv`
+  and `cash_capital_investment_source_2023_2025.csv` in the same directory
+  retain the calculation details. The workbook input tabs also record them.
+
+For a chart comparing the scale of the new revenue requirements against observed
+profit, shareholder payouts and investment, filter the current-financials table
+to the relevant measures and the revenue-impacts table to the total category,
+one financing scenario and one profitability objective. Do not add scenarios,
+or the revenue total to its component rows. Australian payout benchmarks are
+observed amounts, not estimates of future Canadian shareholder payouts.
