@@ -216,7 +216,44 @@ export(impacts, "08_revenue_impacts_2025.csv",
   "Revenue impacts 2025 long CSV",
   "2025; category uplift is NOT a fee/passenger-incidence forecast. Total and three components must not be added together.")
 
-# 8. OPTIONAL HISTORY: historical cap-then-shock and immediate shock paths.
+# 8. OBSERVED HISTORICAL ACCC PRICE-CAP PERIOD.
+# The legacy input contains ACCC Figure 2.2 and 1998 FAC Sydney values.
+# It is NOMINAL AUD, not deflated: export as traceable observations but do not
+# join the levels directly to modern 2025-CAD airport results.
+historical_observed_path <- here::here("output",
+  "accc_legacy_vector_selected.csv")
+historical_observed <- input_csv(historical_observed_path, required = FALSE)
+if (is.null(historical_observed)) {
+  pending("Australia observed 1998–2007 path",
+    "ACCC Figure 2.2 / FAC historical digitization",
+    "Optional source: output/accc_legacy_vector_selected.csv. Original nominal AUD observations require fiscal-year CPI conversion before displaying a real growth index.")
+} else {
+  require_columns(historical_observed,
+    c("airport", "year", "chart", "measure", "adjustment", "value"),
+    "observed historical ACCC source")
+  observed_yield <- historical_observed |>
+    filter(airport %in% aus_airports, year %in% 1998:2007,
+      as.character(chart) == "2.2",
+      measure == "aero_revenue_per_pax",
+      adjustment %in% c("ansett_adjusted", "adjusted") |
+        (airport == "SYD" & year == 1998L &
+           adjustment == "FAC_reported")) |>
+    transmute(airport, australian_fy_end = year,
+      nominal_aud_per_passenger = as.numeric(value),
+      adjustment,
+      regulatory_period = if_else(year <= 2002L,
+        "Price-cap period", "Price monitoring after cap removal"))
+  check_keys(observed_yield,
+    c("airport", "australian_fy_end"), "observed ACCC history")
+  if (nrow(observed_yield) != 40L)
+    stop("Expected 40 historical Australian airport-year records.")
+  export(observed_yield, "09_observed_nominal_australia_1998_2007.csv",
+    "Australia observed 1998–2007 path",
+    "ACCC 2006-07 Figure 2.2 and FAC Sydney 1998; original digitization",
+    "NOMINAL AUD per passenger, not real growth. Price caps ceased in 2002. Sydney 1998 FAC figure is not directly Ansett-adjusted; do not infer a causal shock.")
+}
+
+# 9. OPTIONAL HISTORY: historical cap-then-shock and immediate shock paths.
 # This older model is OFF by default in run_pipeline.R and should be run
 # separately before creating these exports.
 legacy_path <- file.path(base_legacy, "scenario_growth_paths.csv")
@@ -232,9 +269,6 @@ if (is.null(legacy)) {
     "Legacy airport_revenue_counterfactual.R scenario_growth_paths.csv",
     "ILLUSTRATIVE paths mapped to Canadian years; check observed vs extrapolated flags. Not observed Australian financial data.")
 }
-pending("Australia observed 1998–2007 path",
-  "ACCC pre-2007 price-cap and post-cap monitoring reports",
-  "Requires a separate, traceable observed historical series, with 2002 price-cap exit marked. Do not relabel the modelled Canadian scenarios as historical observations.")
 
 # 9. OPTIONAL QUALITY: preserve exact ACCC survey series and classification.
 quality_path <- here::here("data", "australia",
