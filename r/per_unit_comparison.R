@@ -559,7 +559,7 @@ assert_unique(cost_groups_annual,
 required_reg <- c('ebitda', 'operating_profit', 'depreciation_amortisation',
                   'revenue', 'interest_financing_costs', 'profit_before_tax',
                   'income_tax_expense', 'net_profit_after_tax', 'abnormal_items',
-                  'ebit_reported')
+                  'ebit_reported', 'dividends_paid')
 if (!all(required_reg %in% names(reg_total))) {
   stop('Run the ACCC regulatory EBITDA extraction first. Missing: ',
        paste(setdiff(required_reg, names(reg_total)), collapse = ', '))
@@ -568,6 +568,9 @@ if (!all(required_reg %in% names(reg_total))) {
 # Read verified SCACH income-statement inputs.
 scach_path <- here('data', 'australia', 'regulatory_accounts', 'scach_income_verified_inputs_template.csv')
 
+preserved_scach_path <- here('preserved_data', 'scach_income_verified_inputs_template.csv')
+# Prefer the versioned source; keep the existing working path as a fallback.
+if (file.exists(preserved_scach_path)) scach_path <- preserved_scach_path
 scach <- readr::read_csv(scach_path, show_col_types = FALSE) |>
   filter(airport == 'SYD', calendar_year %in% recent_years) |>
   mutate(year = as.integer(calendar_year))
@@ -579,7 +582,9 @@ scach_require <- c('total_revenue', 'ebitda', 'depreciation', 'amortisation',
                    'ebit', 'finance_income', 'finance_costs',
                    'swap_fair_value_change', 'rps_early_redemption_loss',
                    'net_finance_costs', 'profit_before_tax',
-                   'income_tax_expense', 'net_profit_after_tax')
+                   'income_tax_expense', 'net_profit_after_tax',
+                   'rps_interest_expensed', 'rps_debt_cost_amortisation',
+                   'rps_interest_paid', 'dividends_paid', 'capital_return_net')
 
 if (anyNA(scach[scach_require])) stop('Incomplete SCACH income statement.')
 if (any(abs(scach$ebitda - scach$depreciation - scach$amortisation -
@@ -599,9 +604,34 @@ if (any(abs(scach$finance_costs - scach$finance_income -
   stop('SCACH net financing components failed reconciliation.')
 }
 
-scach_join <- scach |>
-  select(year, all_of(scach_require), source_url, source_note,
-         reporting_period) |>
+# Reclassify shareholder remuneration, not the cost of external financing.
+# The redemption loss is included only in reported NET costs, not gross costs.
+scach_reconciliation <- scach |>
+  mutate(
+    rps_financing_expenses = rps_interest_expensed + rps_debt_cost_amortisation +
+      rps_early_redemption_loss,
+    finance_costs_adjusted = finance_costs - rps_interest_expensed -
+      rps_debt_cost_amortisation,
+    net_finance_costs_adjusted = net_finance_costs - rps_financing_expenses,
+    profit_before_tax_adjusted = profit_before_tax + rps_financing_expenses,
+    net_profit_after_tax_adjusted = net_profit_after_tax + rps_financing_expenses,
+    shareholder_payouts = dividends_paid + rps_interest_paid,
+    shareholder_distributions_total = shareholder_payouts + capital_return_net
+  )
+if (any(abs(with(scach_reconciliation, finance_costs_adjusted - finance_income -
+                 swap_fair_value_change - net_finance_costs_adjusted)) > 0.15) ||
+    any(abs(with(scach_reconciliation, ebit - net_finance_costs_adjusted -
+                 profit_before_tax_adjusted)) > 0.15) ||
+    any(abs(with(scach_reconciliation, profit_before_tax_adjusted - income_tax_expense -
+                 net_profit_after_tax_adjusted)) > 0.05)) {
+  stop('Adjusted SCACH financing and profit bridge failed.')
+}
+
+scach_join <- scach_reconciliation |>
+  select(year, all_of(scach_require), finance_costs_adjusted,
+         net_finance_costs_adjusted, profit_before_tax_adjusted,
+         net_profit_after_tax_adjusted, shareholder_payouts,
+         source_url, source_note, reporting_period) |>
   rename_with(~ paste0('scach_', .x), -year)
 
 # For Canadian airport authorities, use net income as pretax income and
@@ -636,6 +666,7 @@ can_fin <- tidyr::expand_grid(airport = ports$airport, year = recent_years) |>
     profit_before_tax = net_income_can,
     accounting_income_tax_expense = 0,
     net_income = net_income_can,
+    shareholder_payouts = 0,
     ebitda_ebit_revenue_basis = total_revenue,
     net_income_revenue_basis = total_revenue,
     financial_source = 'Big 4 long / Canadian airport annual reports',
@@ -660,23 +691,25 @@ aus_financial <- reg_total |>
     asset_impairment = NA_real_, abnormal_items,
     reported_ebit = ebit_reported,
     interest_financing_costs = if_else(airport == 'SYD',
-                                       scach_net_finance_costs,
+                                       scach_net_finance_costs_adjusted,
                                        interest_financing_costs),
     net_financing_costs = if_else(airport == 'SYD',
-                                   scach_net_finance_costs, NA_real_),
+                                   scach_net_finance_costs_adjusted, NA_real_),
     finance_costs_gross = if_else(airport == 'SYD',
-                                   scach_finance_costs, NA_real_),
+                                   scach_finance_costs_adjusted, NA_real_),
     finance_income = if_else(airport == 'SYD',
                                scach_finance_income, NA_real_),
     one_off_financing_loss = if_else(airport == 'SYD',
-                                      scach_rps_early_redemption_loss, NA_real_),
+                                      0, NA_real_),
     profit_before_tax = if_else(airport == 'SYD',
-                                  scach_profit_before_tax, profit_before_tax),
+                                  scach_profit_before_tax_adjusted, profit_before_tax),
     accounting_income_tax_expense = if_else(airport == 'SYD',
                                              scach_income_tax_expense,
                                              income_tax_expense),
     net_income = if_else(airport == 'SYD',
-                           scach_net_profit_after_tax, net_profit_after_tax),
+                           scach_net_profit_after_tax_adjusted, net_profit_after_tax),
+    shareholder_payouts = if_else(airport == 'SYD', scach_shareholder_payouts,
+                                   dividends_paid),
     ebitda_ebit_revenue_basis = revenue,
     # SCACH net margins MUST use matching SCACH consolidated revenue,
     # not ACCC regulated revenue for the June-ending fiscal year.
@@ -688,18 +721,42 @@ aus_financial <- reg_total |>
     financial_period = if_else(airport == 'SYD',
                                 scach_reporting_period, fyear),
     financing_definition = if_else(airport == 'SYD',
-      'SCACH net finance costs (interest income, swap movement, RPS loss included)',
+      'SCACH net finance costs excluding RPS interest, RPS cost amortisation and redemption loss; includes interest income and swap revaluation',
       'ACCC signed Interest line, expense-positive; gross/net decomposition unavailable'),
     net_income_definition = if_else(airport == 'SYD',
-      'SCACH reported consolidated calendar-year net income',
+      'SCACH consolidated calendar-year net income before RPS remuneration and redemption loss; reported tax retained',
       'ACCC audited total reported fiscal-year net profit after tax'),
     scach_source_url = if_else(airport == 'SYD', scach_source_url,
                                NA_character_))
 
 # 6.5 Combine and validate the eight-airport financial panel
 # ----------------------------------------------------------------
+# Cash capital investment is a separate observed cash-flow measure.
+# The preserved input table records component amounts and PDF provenance.
+capital_investment_source <- readr::read_csv(
+  here('preserved_data', 'airport_cash_capital_investment_2023_2025.csv'),
+  show_col_types = FALSE
+) |>
+  mutate(cash_capital_investment = capital_asset_outlay_m +
+           investment_property_outlay_m - capital_payables_change_m)
+assert_unique(capital_investment_source, c('country', 'airport', 'year'),
+              'cash capital investment inputs')
+if (nrow(capital_investment_source) != 8L * length(recent_years) ||
+    any(!is.finite(capital_investment_source$cash_capital_investment)) ||
+    any(capital_investment_source$cash_capital_investment < 0)) {
+  stop('Incomplete or invalid cash capital investment inputs.')
+}
 financial_source_annual <- bind_rows(can_fin, aus_financial) |>
+  left_join(capital_investment_source |>
+    select(country, airport, year, cash_capital_investment),
+    by = c('country', 'airport', 'year')) |>
   arrange(country, airport, year)
+if (anyNA(financial_source_annual$cash_capital_investment)) {
+  stop('Missing cash capital investment after joining airport-year keys.')
+}
+if (any(financial_source_annual$shareholder_payouts < 0, na.rm = TRUE)) {
+  stop('Shareholder payouts must be positive cash outflows or zero.')
+}
 
 assert_unique(financial_source_annual,
               c('country', 'airport', 'year'), 'financial source audit')
@@ -739,7 +796,7 @@ financial_vars <- c('ebitda', 'ebit', 'interest_financing_costs',
                     'abnormal_items', 'reported_ebit',
                     'profit_before_tax', 'accounting_income_tax_expense',
                     'net_income', 'ebitda_ebit_revenue_basis',
-                    'net_income_revenue_basis')
+                    'net_income_revenue_basis', 'shareholder_payouts', 'cash_capital_investment')
 financial_amounts_annual <- financial_source_annual |>
   select(country, airport, year, period, passengers,
          adjustment_to_2025, fx_cad_per_unit, all_of(financial_vars)) |>
@@ -814,7 +871,7 @@ comparison_vars <- c(
   'finance_costs_gross', 'finance_income', 'one_off_financing_loss',
   'profit_before_tax', 'accounting_income_tax_expense', 'net_income',
   'net_profit_margin_pct', 'ebitda_ebit_revenue_basis',
-  'net_income_revenue_basis'
+  'net_income_revenue_basis', 'shareholder_payouts', 'cash_capital_investment'
 )
 
 airport_keys <- bind_rows(
@@ -1067,7 +1124,7 @@ keep_vars <- c(
   'ebit', 'ebit_margin_pct',
   'interest_financing_costs', 'abnormal_items',
   'profit_before_tax', 'accounting_income_tax_expense',
-  'net_income', 'net_profit_margin_pct'
+  'net_income', 'net_profit_margin_pct', 'shareholder_payouts', 'cash_capital_investment'
 )
 
 comparison_pooled_pp_final <- comparison_pp_wide |>
@@ -1214,7 +1271,7 @@ scach_vars <- c(
   'profit_before_tax',
   'accounting_income_tax_expense',
   'net_income',
-  'net_profit_margin_pct'
+  'net_profit_margin_pct', 'shareholder_payouts'
 )
 
 # Attach a source URL and worksheet to each annual comparison measure.
@@ -1232,6 +1289,8 @@ provenance_annual <- comparison_annual_complete |>
   left_join(scach_sources, by = 'year') |>
   mutate(
     source_url = case_when(
+      variable == 'cash_capital_investment' ~
+        'https://github.com/rromard/airports/blob/main/preserved_data/airport_cash_capital_investment_2023_2025.csv',
       country == 'Canada' ~ can_url,
       country == 'Australia' &
         airport == 'SYD' &
@@ -1241,6 +1300,8 @@ provenance_annual <- comparison_annual_complete |>
       country == 'Australia' ~ reg_url
     ),
     source_sheet = case_when(
+      variable == 'cash_capital_investment' ~ 'Preserved annual-report cash-flow inputs (file/page in CSV)',
+      country == 'Canada' & variable == 'shareholder_payouts' ~ 'Structural zero: non-share-capital authority',
       country == 'Australia' &
         airport == 'SYD' &
         variable %in% scach_vars ~
@@ -1279,6 +1340,10 @@ readr::write_csv(
 # ============================================================================
 # 10. SAVE INTERMEDIATE AUDIT DATA
 # ============================================================================
+readr::write_csv(scach_reconciliation,
+  file.path(out_dir, 'sydney_financing_reconciliation_2023_2025.csv'))
+readr::write_csv(capital_investment_source,
+  file.path(out_dir, 'cash_capital_investment_source_2023_2025.csv'))
 saveRDS(
   list(
     annual_all = annual_all,
@@ -1288,6 +1353,8 @@ saveRDS(
     annual_margins = annual_margins,
     comparison_pooled_long = comparison_pooled_long,
     financial_source_annual = financial_source_annual,
+    scach_reconciliation = scach_reconciliation,
+    capital_investment_source = capital_investment_source,
     pass_df = pass_df,
     aus_pass = aus_pass,
     can_cpi = can_cpi,
