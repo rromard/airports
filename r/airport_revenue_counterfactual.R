@@ -617,6 +617,33 @@ if (nrow(profit_revenue_check) != nrow(profitability_annual) ||
 
 # OUTPUT -------------------------------------------------------------------
 # Preserve both inputs for transparency when switching primary reporting mode.
+# Previously calculated directly observed Australian FY1998-2007 real
+# aeronautical yield, plus comparable 1998=100 indexes for charting.
+# All four airports are rebased individually; the pooled index is an
+# UNWEIGHTED average. Sydney's 1998 point comes from FAC, not the
+# Ansett-adjusted ACCC bar series: retain the provenance flag.
+history_chart <- history |>
+  dplyr::group_by(airport) |>
+  dplyr::mutate(
+    index_1998 = 100 * real_yield / real_yield[year == 1998L],
+    source = dplyr::if_else(airport == 'SYD' & year == 1998L,
+      'FAC 1997-98 source (different adjustment scope)',
+      'ACCC 2006-07 Figure 2.2'),
+    regulatory_period = dplyr::if_else(year <= 2002L,
+      'Price-cap period', 'Price monitoring after cap removal')
+  ) |>
+  dplyr::ungroup() |>
+  dplyr::select(airport, australian_fy_end = year, nominal_aud_pp,
+                real_yield, index_1998, source, regulatory_period)
+history_pooled_chart <- history_chart |>
+  dplyr::group_by(australian_fy_end, regulatory_period) |>
+  dplyr::summarise(index_1998 = mean(index_1998), .groups = 'drop') |>
+  dplyr::mutate(airport = 'BIG4', source = 'Unweighted mean of four airport indexes',
+                nominal_aud_pp = NA_real_, real_yield = NA_real_) |>
+  dplyr::select(dplyr::all_of(names(history_chart)))
+readr::write_csv(dplyr::bind_rows(history_chart, history_pooled_chart),
+  file.path(out_dir, 'australia_observed_real_yield_1998_2007.csv'))
+
 readr::write_csv(aus_index_audit,
                  file.path(out_dir, 'gradual_airport_index_audit.csv'))
 readr::write_csv(recent_path_variants,
