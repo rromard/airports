@@ -1,0 +1,25 @@
+country,airport,year,reporting_period,currency_unit,capital_asset_outlay_m,investment_property_outlay_m,capital_payables_change_m,source_file,pdf_page,source_note
+Canada,YYZ,2023,CY2023,nominal CAD millions,287.747,5.766,0,gtaa_2024.pdf,66,Acquisition and construction of property and equipment and intangible assets plus investment property; excludes other assets
+Canada,YYZ,2024,CY2024,nominal CAD millions,299.422,9.134,0,gtaa_2025.pdf,62,Acquisition and construction of property and equipment and intangible assets plus investment property
+Canada,YYZ,2025,CY2025,nominal CAD millions,314.422,6.990,0,gtaa_2025.pdf,62,Acquisition and construction of property and equipment and intangible assets plus investment property
+Canada,YYC,2023,CY2023,nominal CAD millions,59.4,0,0.4,cgy_2024.pdf,26,Investment in capital and intangible assets less positive change in related payables; before capital grants
+Canada,YYC,2024,CY2024,nominal CAD millions,148.1,0,6.4,cgy_2025.pdf,25,Investment in capital and intangible assets less positive change in related payables; before capital grants
+Canada,YYC,2025,CY2025,nominal CAD millions,233.4,0,19.2,cgy_2025.pdf,25,Investment in capital and intangible assets less positive change in related payables; before capital grants
+Canada,YUL,2023,CY2023,nominal CAD millions,261.169,0,0,mtl_2024.pdf,121,Acquisition of property and equipment
+Canada,YUL,2024,CY2024,nominal CAD millions,414.346,0,0,mtl_2025.pdf,124,Acquisition of property and equipment
+Canada,YUL,2025,CY2025,nominal CAD millions,564.730,0,0,mtl_2025.pdf,124,Acquisition of property and equipment
+Canada,YVR,2023,CY2023,nominal CAD millions,238.219,0,0,van_2024.pdf,7,Additions to capital assets
+Canada,YVR,2024,CY2024,nominal CAD millions,222.674,0,0,van_2025.pdf,7,Additions to capital assets
+Canada,YVR,2025,CY2025,nominal CAD millions,210.485,0,0,van_2025.pdf,7,Additions to capital assets
+Australia,BNE,2023,FY2022-23,nominal AUD millions,95.399,118.383,0,bne_2024.pdf,106,Acquisition of property plant and equipment plus investment property
+Australia,BNE,2024,FY2023-24,nominal AUD millions,222.648,113.350,0,bne_2025.pdf,96,Acquisition of property plant and equipment plus investment property
+Australia,BNE,2025,FY2024-25,nominal AUD millions,491.925,216.694,0,bne_2025.pdf,96,Acquisition of property plant and equipment plus investment property
+Australia,MEL,2023,FY2022-23,nominal AUD millions,405.052,102.051,0,mel_2023.pdf,,"Payments for property, plant and equipment and investment property; excludes separately identified intangibles"
+Australia,MEL,2024,FY2023-24,nominal AUD millions,663.903,137.826,0,mel_2025.pdf,47,"Payments for property, plant and equipment and investment property; excludes separately identified intangibles"
+Australia,MEL,2025,FY2024-25,nominal AUD millions,959.320,214.847,0,mel_2025.pdf,47,"Payments for property, plant and equipment and investment property; excludes separately identified intangibles"
+Australia,PER,2023,FY2022-23,nominal AUD millions,123.463,0,0,per_2023.pdf,46,"Purchase of investment property, infrastructure, plant and equipment; excludes separately identified intangibles"
+Australia,PER,2024,FY2023-24,nominal AUD millions,208.2,0,0,per_2025.pdf,40,"Purchase of investment property, infrastructure, plant and equipment; excludes separately identified intangibles"
+Australia,PER,2025,FY2024-25,nominal AUD millions,280.3,0,0,per_2025.pdf,40,"Purchase of investment property, infrastructure, plant and equipment; excludes separately identified intangibles"
+Australia,SYD,2023,CY2023,nominal AUD millions,399.0,0,0,scach_2023.pdf,24,"SCACH FY2024 report comparative; acquisition of property, plant and equipment; excludes separately shown capitalised borrowing costs"
+Australia,SYD,2024,CY2024,nominal AUD millions,546.6,0,0,scach_2025.pdf,23,"SCACH FY2025 report comparative; acquisition of property, plant and equipment; excludes separately shown capitalised borrowing costs"
+Australia,SYD,2025,CY2025,nominal AUD millions,726.3,0,0,scach_2025.pdf,23,"Acquisition of property, plant and equipment; excludes separately shown capitalised borrowing costs"
