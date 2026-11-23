@@ -756,6 +756,9 @@ openxlsx::setColWidths(wb, bridge_comparison_sheet,
 openxlsx::freezePane(wb, bridge_comparison_sheet,
   firstActiveRow = comparison_first, firstActiveCol = 5)
 
+sys.source(here::here('r', 'append_revenue_impacts.R'),
+           envir = environment())
+
 message('Prepared profitability benchmark calculations: ',
         nrow(calc_data), ' formula cases; ',
         nrow(bridge_comparison), ' static scenario comparison rows; ',
