@@ -1,0 +1,7 @@
+country,airline_group,domestic_seat_capacity_share_pct,year,measurement_period,source,notes
+Canada,Air Canada group,43.7,2022,Week commencing 27 June 2022,https://www.accc.gov.au/system/files/Airline%20competition%20in%20Australia%20report%20%28June%202022%29.pdf,Air Canada includes Rouge
+Canada,WestJet group,32.8,2022,Week commencing 27 June 2022,https://www.accc.gov.au/system/files/Airline%20competition%20in%20Australia%20report%20%28June%202022%29.pdf,WestJet includes Swoop
+Canada,Other carriers,23.5,2022,Week commencing 27 June 2022,https://www.accc.gov.au/system/files/Airline%20competition%20in%20Australia%20report%20%28June%202022%29.pdf,Residual to 100 percent
+Australia,Qantas group,62.4,2022,Week commencing 27 June 2022,https://www.accc.gov.au/system/files/Airline%20competition%20in%20Australia%20report%20%28June%202022%29.pdf,Qantas includes Jetstar
+Australia,Virgin Australia group,30.4,2022,Week commencing 27 June 2022,https://www.accc.gov.au/system/files/Airline%20competition%20in%20Australia%20report%20%28June%202022%29.pdf,
+Australia,Other carriers,7.2,2022,Week commencing 27 June 2022,https://www.accc.gov.au/system/files/Airline%20competition%20in%20Australia%20report%20%28June%202022%29.pdf,Residual to 100 percent
