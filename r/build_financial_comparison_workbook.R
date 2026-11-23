@@ -6,7 +6,7 @@
 #
 # Produces ten observed-finance sheets and eight analytical sheets in the
 # integrated 18-sheet production workbook (scenario comparison, selectable
-# profitability bridge, bridge calculations, two acquisition presentations,
+# revenue impacts, scenario comparison, bridge calculations, two acquisition presentations,
 # two formula calculation sheets and acquisition methodology). The initial sheets contain comparisons, calculations,
 # supporting sources, methodology, reconciliation. Supporting sheets carry
 # descriptive source identifiers, file types and clickable links. The
@@ -1009,9 +1009,9 @@ if (any(nchar(unlist(sheet_names)) > 31L) ||
 production_sheet_groups <- list(
   documentation = c(sheet_names$methodology, 'Acquisition methodology'),
   presentation = c(
-    sheet_names$totals, sheet_names$pp,
+    'Revenue impacts', sheet_names$totals, sheet_names$pp,
     'Acquisition financing', 'Profitability requirements',
-    'Profitability bridge', 'Scenario comparison'
+    'Scenario comparison'
   ),
   calculations = c(
     sheet_names$calculations, sheet_names$profit,
