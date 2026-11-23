@@ -166,23 +166,47 @@ export(financial, "03_current_financials_2025.csv",
   "Annual absolute financial comparison CSV",
   "Operating margin is EBITDA/revenue, not after-capital net profit. Australia FY versus Canada CY; source-specific accounting limitations remain.")
 
-# 4. AUSTRALIAN ACCOUNTING TAX: avoid representing expenses as cash paid.
-tax <- annual_abs |>
-  filter(country == "Australia", year %in% 2023:2025) |>
-  select(country, airport, year, profit_before_tax,
-    accounting_income_tax_expense, net_income, total_revenue) |>
-  mutate(effective_accounting_tax_rate_pct = if_else(
-    is.finite(profit_before_tax) & profit_before_tax > 0 &
-      is.finite(accounting_income_tax_expense),
-    100 * accounting_income_tax_expense / profit_before_tax, NA_real_),
-    reporting_basis = "Mixed FY reporting; see model source notes")
-export(tax, "04_australia_accounting_tax_2023_2025.csv",
-  "Australian airport taxation",
-  "Financial comparison: regulatory accounts; Sydney SCACH consolidated below-operating results",
-  "Accounting income-tax EXPENSE, not cash corporate tax paid. Effective rates can be distorted by deferred tax, losses and differing corporate/reporting entities.")
-pending("Australian airport taxation",
-  "ATO corporate tax transparency / company financial statements",
-  "To investigate cash tax paid, taxable income, deductions, related-party finance and corporate entity scope, prepare a separately sourced entity-year crosswalk; do not infer avoidance from accounting expenses alone.")
+# 4. AUSTRALIAN AIRPORT TAXATION: two already assembled source panels.
+# Tax figures here are source AUD, not 2025 CAD. Do not equate
+# ATO tax payable with ACCC cash-flow tax paid or accounting tax expense.
+tax_dir <- here::here("output", "taxation")
+tax_rates <- input_csv(file.path(tax_dir, "aus_airport_tax_rates.csv"),
+                       required = FALSE)
+if (is.null(tax_rates)) {
+  pending("Australian airport cash taxation",
+    "airport_tax_with_cash.R -> output/taxation/aus_airport_tax_rates.csv",
+    "Run the existing airport_tax_with_cash.R analysis, then rerun presentation exports. ACCC cash-flow tax paid, ATO tax payable, and accounting tax expense are distinct concepts.")
+} else {
+  require_columns(tax_rates,
+    c("airport", "fyear", "year_end", "period", "total_revenue",
+      "operating_profit", "profit_before_tax", "tax_expense",
+      "cash_tax_paid", "tax_payable", "benchmark_profit",
+      "benchmark_tax", "tax_gap"), "Australian airport tax rates")
+  check_keys(tax_rates, c("airport", "fyear"), "Australian airport tax rates")
+  export(tax_rates |>
+      arrange(airport, year_end),
+    "04_australia_tax_cash_accounting_2016_2025.csv",
+    "Australian airport taxation",
+    "airport_tax_with_cash.R: ACCC regulatory accounts + ATO tax transparency",
+    "Amounts as reported in AUD. ACCC cash-flow tax paid, ACCC accounting tax expense and ATO tax payable differ. Sydney benchmark_tax is a synthetic 30% of EBIT; other airports use accounting tax expense, so tax_gap is not a uniform statutory-tax counterfactual. Missing cash-tax disclosures were set to zero in source model.")
+}
+ato_airport <- input_csv(file.path(tax_dir,
+  "ato_airport_tax_2013_2025.csv"), required = FALSE)
+if (is.null(ato_airport)) {
+  pending("Australian tax transparency: entity detail",
+    "airport_tax_with_cash.R -> output/taxation/ato_airport_tax_2013_2025.csv",
+    "Run existing tax script to make entity-year ATO turnover, taxable income and tax payable available for visualizations.")
+} else {
+  require_columns(ato_airport,
+    c("airport", "company", "abn", "fyear", "year_end",
+      "total_income", "taxable_income", "tax_payable"),
+    "ATO airport entities")
+  check_keys(ato_airport, c("abn", "fyear"), "ATO airport entities")
+  export(ato_airport, "04b_australia_ato_entities_2013_2025.csv",
+    "Australian airport taxation",
+    "airport_tax_with_cash.R: ATO corporate tax transparency workbooks",
+    "ATO company entities do not always coincide with airport operating-company or group consolidated boundaries; SYD reporting entity changes in 2022-23.")
+}
 
 # 5. FINANCING CASES: assumptions and matching 2025 outcomes.
 assumptions <- input_csv(file.path(base_acquisition, "scenario_assumptions.csv"))
@@ -243,41 +267,28 @@ export(impacts, "08_revenue_impacts_2025.csv",
   "Revenue impacts 2025 long CSV",
   "2025; category uplift is NOT a fee/passenger-incidence forecast. Total and three components must not be added together.")
 
-# 8. OBSERVED HISTORICAL ACCC PRICE-CAP PERIOD.
-# The legacy input contains ACCC Figure 2.2 and 1998 FAC Sydney values.
-# It is NOMINAL AUD, not deflated: export as traceable observations but do not
-# join the levels directly to modern 2025-CAD airport results.
-historical_observed_path <- here::here("output",
-  "accc_legacy_vector_selected.csv")
-historical_observed <- input_csv(historical_observed_path, required = FALSE)
-if (is.null(historical_observed)) {
-  pending("Australia observed 1998–2007 path",
-    "ACCC Figure 2.2 / FAC historical digitization",
-    "Optional source: output/accc_legacy_vector_selected.csv. Original nominal AUD observations require fiscal-year CPI conversion before displaying a real growth index.")
+# 8. DIRECTLY OBSERVED REAL AUSTRALIAN HISTORICAL REVENUE PATH.
+# The counterfactual script already deflates the ACCC historical nominal
+# data using Australian FY CPI. Reuse that output; no duplicate CPI logic.
+history_real <- input_csv(file.path(base_legacy,
+  "australia_observed_real_yield_1998_2007.csv"), required = FALSE)
+if (is.null(history_real)) {
+  pending("Australia observed 1998–2007 real path",
+    "airport_revenue_counterfactual.R historical ACCC/FAC yield + Australian CPI",
+    "Run the existing legacy counterfactual script with the new real-history export, then rerun presentation exports.")
 } else {
-  require_columns(historical_observed,
-    c("airport", "year", "chart", "measure", "adjustment", "value"),
-    "observed historical ACCC source")
-  observed_yield <- historical_observed |>
-    filter(airport %in% aus_airports, year %in% 1998:2007,
-      as.character(chart) == "2.2",
-      measure == "aero_revenue_per_pax",
-      adjustment %in% c("ansett_adjusted", "adjusted") |
-        (airport == "SYD" & year == 1998L &
-           adjustment == "FAC_reported")) |>
-    transmute(airport, australian_fy_end = year,
-      nominal_aud_per_passenger = as.numeric(value),
-      adjustment,
-      regulatory_period = if_else(year <= 2002L,
-        "Price-cap period", "Price monitoring after cap removal"))
-  check_keys(observed_yield,
-    c("airport", "australian_fy_end"), "observed ACCC history")
-  if (nrow(observed_yield) != 40L)
-    stop("Expected 40 historical Australian airport-year records.")
-  export(observed_yield, "09_observed_nominal_australia_1998_2007.csv",
-    "Australia observed 1998–2007 path",
-    "ACCC 2006-07 Figure 2.2 and FAC Sydney 1998; original digitization",
-    "NOMINAL AUD per passenger, not real growth. Price caps ceased in 2002. Sydney 1998 FAC figure is not directly Ansett-adjusted; do not infer a causal shock.")
+  require_columns(history_real, c("airport", "australian_fy_end",
+    "real_yield", "index_1998", "source", "regulatory_period"),
+    "observed Australian historical yields")
+  check_keys(history_real, c("airport", "australian_fy_end"),
+    "observed Australian history")
+  if (nrow(history_real) != 50L ||
+      any(!is.finite(history_real$index_1998)))
+    stop("Expected 40 airport-year and 10 pooled historical index rows.")
+  export(history_real, "09_australia_observed_real_yield_1998_2007.csv",
+    "Australia observed 1998–2007 real path",
+    "airport_revenue_counterfactual.R: CPI-deflated ACCC Figure 2.2 and FAC Sydney 1998",
+    "Real aeronautical yield index 1998=100; BIG4 is an unweighted mean of four airport indexes. Real yield levels are nominal AUD divided by FY CPI, not dollar-valued 2025 CAD. Sydney 1998 FAC source differs in scope from other ACCC figures.")
 }
 
 # 9. OPTIONAL HISTORY: historical cap-then-shock and immediate shock paths.
