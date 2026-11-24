@@ -381,6 +381,113 @@ if (any(tax_rates$reg_cash_tax_missing)) {
   warning("Missing ACCC cash tax observations retained as NA")
 }
 
+# Reconcile the overlapping ACCC observations against the EXISTING production
+# extraction. This is a read-only diagnostic, not a second financial model.
+# The production file is in nominal AUD millions; this tax panel is in AUD.
+# Compare reported EBIT (including abnormal items), NOT operating EBIT or
+# adjusted SCACH profits. Both extractors standardize tax expense to positive.
+production_reg_path <- here("output", "accc_airport_ebitda_by_activity_2022_2025.csv")
+overlap_fyears <- c("2022-23", "2023-24", "2024-25")
+reconciliation_tolerance_aud <- 1000
+
+tax_overlap <- tax_rates |>
+  filter(fyear %in% overlap_fyears) |>
+  transmute(
+    airport, fyear, reg_source_file, reg_source_sheet,
+    total_revenue = reg_total_revenue,
+    reported_ebit = reg_ebit,
+    profit_before_tax = reg_profit_before_tax,
+    accounting_tax_expense = reg_tax_expense
+  ) |>
+  pivot_longer(
+    cols = c(total_revenue, reported_ebit, profit_before_tax, accounting_tax_expense),
+    names_to = "metric", values_to = "tax_extract_aud"
+  )
+
+# Typed empty reference ensures a fresh diagnostic is written even when the
+# production extract is unavailable. Never report missing comparisons as matches.
+production_overlap <- tibble(
+  airport = character(), fyear = character(), metric = character(),
+  production_source_file = character(), production_source_sheet = character(),
+  production_extract_aud = double()
+)
+reference_status <- "available"
+if (!file.exists(production_reg_path)) {
+  reference_status <- "reference_file_missing"
+} else {
+  production_reg <- read_csv(production_reg_path, show_col_types = FALSE)
+  required_reg_cols <- c(
+    "airport", "fyear", "activity", "source_file", "source_sheet",
+    "revenue", "ebit_reported", "profit_before_tax", "income_tax_expense"
+  )
+  if (!all(required_reg_cols %in% names(production_reg))) {
+    reference_status <- "reference_schema_invalid"
+  } else if (!all(vapply(
+    production_reg[c("revenue", "ebit_reported", "profit_before_tax", "income_tax_expense")],
+    function(x) is.numeric(x) || all(is.na(x)), logical(1)
+  ))) {
+    reference_status <- "reference_values_invalid"
+  } else {
+    production_reg <- production_reg |>
+      filter(activity == "total", fyear %in% overlap_fyears,
+             airport %in% names(airport_names))
+    if (anyDuplicated(production_reg[c("airport", "fyear")])) {
+      reference_status <- "reference_duplicate_keys"
+    } else {
+      production_overlap <- production_reg |>
+        transmute(
+          airport, fyear,
+          production_source_file = source_file,
+          production_source_sheet = source_sheet,
+          total_revenue = revenue * 1e6,
+          reported_ebit = ebit_reported * 1e6,
+          profit_before_tax = profit_before_tax * 1e6,
+          accounting_tax_expense = income_tax_expense * 1e6
+        ) |>
+        pivot_longer(
+          cols = c(total_revenue, reported_ebit, profit_before_tax, accounting_tax_expense),
+          names_to = "metric", values_to = "production_extract_aud"
+        )
+    }
+  }
+}
+
+reg_reconciliation <- tax_overlap |>
+  left_join(production_overlap, by = c("airport", "fyear", "metric"),
+            relationship = "one-to-one") |>
+  mutate(
+    difference_aud = tax_extract_aud - production_extract_aud,
+    absolute_difference_aud = abs(difference_aud),
+    tolerance_aud = reconciliation_tolerance_aud,
+    status = case_when(
+      reference_status != "available" ~ reference_status,
+      is.na(production_source_file) ~ "reference_row_missing",
+      !is.finite(tax_extract_aud) | !is.finite(production_extract_aud) ~ "value_missing",
+      absolute_difference_aud > tolerance_aud + 1e-6 ~ "discrepancy",
+      TRUE ~ "within_tolerance"
+    )
+  ) |>
+  arrange(airport, fyear, metric)
+
+reconciliation_path <- here("output", "taxation", "accc_tax_extraction_reconciliation.csv")
+write_csv(reg_reconciliation, reconciliation_path)
+reconciliation_issues <- reg_reconciliation |> filter(status != "within_tolerance")
+if (nrow(reg_reconciliation) != length(airport_names) * length(overlap_fyears) * 4L) {
+  warning("Unexpected ACCC tax reconciliation coverage; review the airport-year panel")
+}
+if (nrow(reconciliation_issues)) {
+  print(reconciliation_issues |>
+          select(airport, fyear, metric, tax_extract_aud,
+                 production_extract_aud, difference_aud, status),
+        n = Inf)
+  warning("ACCC tax extraction reconciliation: ", nrow(reconciliation_issues),
+          " observations require review; see ", reconciliation_path,
+          ". Neither source has been changed.")
+} else {
+  message("ACCC tax extraction reconciliation: ", nrow(reg_reconciliation),
+          " observations within AUD ", reconciliation_tolerance_aud, " tolerance.")
+}
+
 # Regression diagnostic for the Perth FY2018-19 observation that motivated
 # this revision. Warn if published inputs have since been revised.
 per_check <- tax_rates |> filter(airport == "PER", fyear == "2018-19")
