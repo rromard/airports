@@ -18,10 +18,9 @@
 # Outputs: output/datawrapper_charts/ (only when write_chart() is called)
 
 suppressPackageStartupMessages({
-  library(dplyr)
-  library(tidyr)
-  library(readr)
+  library(tidyverse)
   library(here)
+  library(clipr)
 })
 
 dw_source_dir <- here::here("output", "presentation_data")
@@ -165,6 +164,87 @@ dw_notes <- function(dataset) {
 # dw_notes("australia_tax")
 # View(dw$revenue_impacts)
 # -------------------------------------------------------------------------
+
+names(dw)
+
+
+# 1. Country context ------------------------------------------------------
+
+## Population, area, GDP
+dw1 <- dw$country_context |> 
+  transmute(
+    country,
+    Population = population_2025,
+    `Land area` = land_area_km2,
+    `Population density` = population_density_2025_per_km2,
+    `GDP` = gdp_2025_usd_trillion_rounded*1e+12,
+    `GDP per capita` = gdp_per_capita_2025_usd
+  ) |> 
+  pivot_longer(-country, names_to = "&nbsp;") |> 
+  pivot_wider(names_from = country)
+
+write_clip(dw1)
+
+## Airline shares
+dw$airline_shares |> 
+  select(
+    country,
+    Airline = airline_group,
+    share = domestic_seat_capacity_share_pct
+  ) |> 
+  pivot_wider(names_from = country, values_from = share) #|> 
+  write_clip()
+
+
+
+# 2. Airport suitability comparison ---------------------------------------
+
+# Revenues
+dw$airport_scale
+
+# Spending
+
+
+# Profitability
+
+
+
+# 3. Australia cautionary story -------------------------------------------
+
+## Aero revenue growth
+dw$growth_paths |> view()
+
+## Parking revenue growth
+dw$financials_2025 |> view()
+
+## Quality, average of passenger ratings over time by airport
+dw$financials_2025 
+
+
+# 4. Purchase situations --------------------------------------------------
+
+dw$
+  
+
+# 5. Purchase revenue requirements ----------------------------------------
+
+
+
+# 6. Airports never pay their taxes ---------------------------------------
+
+
+
+
+dw_inventory
+
+dw$aero_yield |> view()
+
+dw$quality |> view()
+
+dw$
+dw$big4_scale
+
+
 
 message(
   "Loaded ", length(dw), " Datawrapper source tables into 'dw'.\n",
