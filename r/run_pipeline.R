@@ -116,7 +116,8 @@ if (refresh_australian_tax) {
               'output/taxation/ato_airport_tax_2013_2025.csv',
               'output/taxation/ato_corporate_tax_2013_2025.csv',
               'output/taxation/aus_airport_tax_rates.csv',
-              'output/taxation/aus_airport_tax_periods.csv'
+              'output/taxation/aus_airport_tax_periods.csv',
+              'output/taxation/accc_tax_extraction_reconciliation.csv'
             ))
 }
 
