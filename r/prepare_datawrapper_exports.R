@@ -224,10 +224,22 @@ financial <- annual_abs |>
       country == "Australia" ~ "FY 2024-25", TRUE ~ "CY 2025")) |>
   select(country, airport, year, reporting_basis, metric,
     metric_label, value, unit)
+# Supplementary parking yield: GTAA 2024 Annual Report, p. 45,
+# defines enplanements for credit metrics as half of total passengers.
+# Keep the common total-passenger denominator in all core comparisons.
+parking_yield <- annual_pp |>
+  filter(year == 2025L) |>
+  transmute(country, airport, year,
+    reporting_basis = if_else(country == "Australia", "FY 2024-25", "CY 2025"),
+    metric = "parking_transport_revenue_per_enplaned",
+    metric_label = "Parking and ground transportation revenue per estimated enplaned passenger",
+    value = 2 * parking_transport_revenue,
+    unit = "2025 CAD per estimated enplaned passenger")
+financial <- bind_rows(financial, parking_yield)
 export(financial, "03_current_financials_2025.csv",
   "Current Canadian–Australian airport financials",
-  "Annual absolute financial comparison CSV",
-  "Operating margin is EBITDA/revenue, not after-capital net profit. Sydney net profit is adjusted for RPS remuneration and redemption loss; payouts include ordinary dividends and cash RPS interest. BNE/MEL/PER payouts are ACCC reported dividends. Cash investment is observed cash outlay, not depreciation; intangible assets may be bundled in Canadian inputs. Australia FY versus Canada CY; Sydney below-operating measures and cash investment use SCACH CY.")
+  "Annual absolute and per-passenger financial comparison CSVs",
+  "Operating margin is EBITDA/revenue, not after-capital net profit. Sydney net profit is adjusted for RPS remuneration and redemption loss; payouts include ordinary dividends and cash RPS interest. BNE/MEL/PER payouts are ACCC reported dividends. Cash investment is observed cash outlay, not depreciation; intangible assets may be bundled in Canadian inputs. Australia FY versus Canada CY; Sydney below-operating measures and cash investment use SCACH CY. Parking/ground transportation yield uses estimated enplanements (50% of total passengers), following GTAA 2024 Annual Report p. 45; not a parking price or observed enplanement count.")
 
 # 4. AUSTRALIAN AIRPORT TAXATION: two already assembled source panels.
 # Tax figures here are source AUD, not 2025 CAD. Do not equate
