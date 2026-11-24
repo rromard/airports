@@ -359,8 +359,17 @@ tax_rates <- reg_profit |>
       positive_ratio(ato_taxable_income, reg_profit_before_tax), NA_real_
     ),
     cash_tax_revenue_ratio = positive_ratio(reg_cash_tax_paid, reg_total_revenue),
-    # Uniform benchmarks, kept separate from each other. Neither is a
-    # measure of tax avoidance or a same-year cash tax liability.
+    # Broad Corporate Knights / Toronto Star (2017) tax gap:
+    # https://corporateknights.com/responsible-investing/the-high-cost-of-low-corporate-taxes/
+    # Statutory tax on accounting EBT, less cash income tax paid.
+    # Retain signed EBT so loss years offset profits in cumulative windows.
+    # This is a benchmark, not an assessed liability or proof of noncompliance.
+    expected_tax_on_accounting_profit = statutory_rate * reg_profit_before_tax,
+    tax_gap = expected_tax_on_accounting_profit - reg_cash_tax_paid,
+    # ATO payable less cash is a distinct, cross-source liability/payment
+    # comparison; timing and entity scope can differ.
+    ato_payable_less_cash = ato_tax_payable - reg_cash_tax_paid,
+    # Additional diagnostic benchmarks, not interchangeable with tax_gap.
     accounting_expense_less_cash = reg_tax_expense - reg_cash_tax_paid,
     statutory_ebt_less_cash = pmax(reg_profit_before_tax, 0) * statutory_rate - reg_cash_tax_paid,
     statutory_ebit_less_cash = pmax(reg_ebit, 0) * statutory_rate - reg_cash_tax_paid
@@ -509,7 +518,8 @@ tax_periods <- tax_rates |>
     across(c(reg_total_revenue, reg_ebit, reg_profit_before_tax,
              reg_tax_expense, reg_cash_tax_paid, ato_total_income,
              ato_taxable_income, ato_tax_payable, ato_statutory_tax,
-             ato_statutory_less_payable, accounting_expense_less_cash,
+             ato_statutory_less_payable, expected_tax_on_accounting_profit,
+             tax_gap, ato_payable_less_cash, accounting_expense_less_cash,
              statutory_ebt_less_cash, statutory_ebit_less_cash), sum),
     .by = c(period, airport)
   ) |>
@@ -521,6 +531,18 @@ tax_periods <- tax_rates |>
     cash_taxable_income_rate = positive_ratio(reg_cash_tax_paid, ato_taxable_income),
     cash_tax_revenue_ratio = positive_ratio(reg_cash_tax_paid, reg_total_revenue)
   )
+
+# Check period gaps against the statutory benchmark on summed signed EBT.
+# The annual positive-EBT floor is retained only as a separate sensitivity.
+period_gap_residual <- with(tax_periods,
+  tax_gap - (0.30 * reg_profit_before_tax - reg_cash_tax_paid))
+if (any(abs(period_gap_residual) > 0.01, na.rm = TRUE)) {
+  stop("Cumulative tax gap does not reconcile to statutory tax less cash")
+}
+if (any(tax_rates$airport == "SYD" & tax_rates$reg_profit_before_tax < 0,
+        na.rm = TRUE)) {
+  warning("Sydney ACCC EBT contains losses; review historical financing and scope before publishing its tax gap")
+}
 
 write_csv(tax_rates, here("output", "taxation", "aus_airport_tax_rates.csv"))
 write_csv(tax_periods, here("output", "taxation", "aus_airport_tax_periods.csv"))
