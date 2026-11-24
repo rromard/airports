@@ -56,6 +56,7 @@ dw_names <- c(
   "03_current_financials_2025.csv" = "financials_2025",
   "04_australia_tax_cash_accounting_2016_2025.csv" = "australia_tax",
   "04b_australia_ato_entities_2013_2025.csv" = "ato_entities",
+  "04c_australia_tax_periods.csv" = "australia_tax_periods",
   "05_acquisition_assumptions.csv" = "acquisition_assumptions",
   "06_acquisition_scenarios_2025.csv" = "acquisition_scenarios",
   "07_profitability_targets_2025.csv" = "profitability_targets",
@@ -146,11 +147,15 @@ dw_notes <- function(dataset) {
 # View(airline_chart)
 # write_chart(airline_chart, "airline_concentration_2022")
 #
-# EXAMPLE: Australian tax-gap series (already calculated upstream)
+# EXAMPLE: Australian tax ratios (explicitly different denominators)
 #
-# tax_gap_chart <- dw$australia_tax |>
-#   select(airport, year_end, tax_gap)
-# write_chart(tax_gap_chart, "australian_tax_gap")
+# tax_rate_chart <- dw$australia_tax |>
+#   select(airport, year_end, ato_payable_rate, cash_accounting_etr,
+#          cash_taxable_income_rate)
+# write_chart(tax_rate_chart, "australian_tax_rates")
+#
+# For a uniform statutory EBIT benchmark use statutory_ebit_less_cash;
+# it is not an estimate of tax avoidance.
 #
 # EXAMPLE: financial comparison
 #
