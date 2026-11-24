@@ -448,8 +448,12 @@ value_type_for <- function(country, airport, variable) {
   case_when(
     variable %in% c('ebitda_margin_pct', 'ebit_margin_pct',
                     'net_profit_margin_pct', 'non_aero_minus_parking') ~ 'derived',
-    country == 'Canada' & variable == 'accounting_income_tax_expense' ~
+    country == 'Canada' & variable %in% c('accounting_income_tax_expense', 'shareholder_payouts') ~
       'assumed',
+    variable == 'cash_capital_investment' ~ 'derived',
+    airport == 'SYD' & variable %in% c('interest_financing_costs', 'net_financing_costs',
+      'finance_costs_gross', 'one_off_financing_loss', 'profit_before_tax', 'net_income',
+      'shareholder_payouts') ~ 'derived',
     country == 'Canada' & variable %in% c('total_aero', 'ebit',
                                          'profit_before_tax') ~ 'derived',
     country == 'Australia' & variable %in% c(
@@ -462,6 +466,17 @@ value_type_for <- function(country, airport, variable) {
 }
 formula_for <- function(country, airport, variable) {
   case_when(
+    variable == 'cash_capital_investment' ~
+      'capital asset outlay + investment property outlay - change in capital payables; see preserved cash-flow inputs',
+    variable == 'shareholder_payouts' & country == 'Canada' ~ 'structural zero: non-share-capital authority',
+    variable == 'shareholder_payouts' & airport == 'SYD' ~ 'cash ordinary dividends + cash RPS interest',
+    variable == 'shareholder_payouts' & country == 'Australia' ~ 'ACCC reported dividends paid',
+    airport == 'SYD' & variable %in% c('interest_financing_costs', 'net_financing_costs') ~
+      'reported net finance costs - RPS interest expense - RPS debt cost amortisation - RPS redemption loss',
+    airport == 'SYD' & variable %in% c('profit_before_tax', 'net_income') ~
+      'reported profit + RPS interest expense + RPS debt cost amortisation + RPS redemption loss; reported tax retained',
+    airport == 'SYD' & variable == 'finance_costs_gross' ~ 'reported gross costs - RPS interest expense - RPS debt cost amortisation',
+    airport == 'SYD' & variable == 'one_off_financing_loss' ~ 'zero after excluding RPS redemption loss',
     variable == 'total_aero' & country == 'Canada' ~
       'aero_excl_aif + aif_revenue',
     variable == 'commercial_revenue' & country == 'Australia' ~
@@ -754,7 +769,7 @@ scach_vars <- c(
   'interest_financing_costs', 'finance_costs_gross', 'finance_income',
   'one_off_financing_loss', 'profit_before_tax',
   'accounting_income_tax_expense', 'net_income',
-  'net_income_revenue_basis'
+  'net_income_revenue_basis', 'shareholder_payouts'
 )
 scach_inputs <- audit$financial_source_annual |>
   filter(country == 'Australia', airport == 'SYD', year %in% 2023:2025) |>
@@ -765,16 +780,48 @@ scach_inputs <- audit$financial_source_annual |>
     country = 'Australia', airport, year, fyear = as.character(year),
     activity = 'SCACH consolidated (calendar year)',
     measure, value, unit = 'nominal AUD millions',
-    value_type = 'reported', calculation = NA_character_,
+    value_type = value_type_for(country, airport, measure),
+    calculation = formula_for(country, airport, measure),
     source_file = NA_character_,
-    source_sheet = 'SCACH consolidated income statement',
+    source_sheet = 'SCACH consolidated income statement / Note 7 / cash flows',
     source_url = scach_source_url
   )
 if (nrow(scach_inputs) != 3L * length(scach_vars) ||
     anyNA(scach_inputs$source_url)) {
   stop('Sydney SCACH inputs or annual document links are incomplete.')
 }
-reg_inputs <- bind_rows(reg_inputs, scach_inputs) |>
+scach_raw <- audit$scach_reconciliation |>
+  select(airport, year, source_url, finance_costs, finance_income,
+         swap_fair_value_change, net_finance_costs, profit_before_tax,
+         income_tax_expense, net_profit_after_tax, rps_interest_expensed,
+         rps_debt_cost_amortisation, rps_early_redemption_loss,
+         rps_interest_paid, dividends_paid, capital_return_net,
+         rps_financing_expenses, shareholder_distributions_total) |>
+  pivot_longer(-c(airport, year, source_url), names_to = 'measure', values_to = 'value') |>
+  transmute(country = 'Australia', airport, year, fyear = as.character(year),
+    activity = 'SCACH reported inputs / reconciliation', measure, value,
+    unit = 'nominal AUD millions',
+    value_type = if_else(measure %in% c('rps_financing_expenses', 'shareholder_distributions_total'), 'derived', 'reported'),
+    calculation = case_when(measure == 'rps_financing_expenses' ~ 'RPS interest expense + RPS cost amortisation + redemption loss',
+      measure == 'shareholder_distributions_total' ~ 'cash dividends + RPS cash interest + return of capital', TRUE ~ NA_character_),
+    source_file = NA_character_, source_sheet = 'SCACH consolidated income statement / Note 7 / cash flows', source_url)
+# Retain the capital inputs and their exact report/PDF page provenance.
+capital_inputs <- audit$capital_investment_source |>
+  mutate(source_url = 'https://github.com/rromard/airports/blob/main/preserved_data/airport_cash_capital_investment_2023_2025.csv') |>
+  pivot_longer(c(capital_asset_outlay_m, investment_property_outlay_m, capital_payables_change_m, cash_capital_investment),
+    names_to = 'measure', values_to = 'value') |>
+  mutate(value_type = if_else(measure == 'cash_capital_investment', 'derived', 'reported'),
+    calculation = if_else(measure == 'cash_capital_investment', 'asset outlay + investment property - capital payables change', NA_character_),
+    source_sheet = paste0('Cash flow statement; ', source_file, ', PDF page ', coalesce(as.character(pdf_page), 'not recorded'), '; ', source_note))
+can_inputs <- bind_rows(can_inputs, capital_inputs |>
+  filter(country == 'Canada') |>
+  transmute(country, airport, year, measure, category = 'cash investment', value,
+    unit = currency_unit, value_type, calculation, source_sheet, source_url))
+reg_inputs <- bind_rows(reg_inputs, scach_inputs, scach_raw, capital_inputs |>
+  filter(country == 'Australia') |>
+  transmute(country, airport, year, fyear = reporting_period,
+    activity = 'Annual report capital investment', measure, value,
+    unit = currency_unit, value_type, calculation, source_file, source_sheet, source_url)) |>
   arrange(airport, year, activity, measure)
 assert_unique(reg_inputs, c('airport', 'year', 'activity', 'measure'),
               'Australian regulatory and SCACH input records')
@@ -912,7 +959,11 @@ methodology <- tribble(
   'Canadian AIF',
     'Aeronautical revenue including AIF is a separate derived measure; AIF is not added again to total revenue.',
   'Sydney below-operating results',
-    'Selected financing, pretax profit, tax and net-income measures use SCACH consolidated calendar-year statements. Operating measures use June-ending ACCC sources.',
+    'SCACH calendar-year financing and profits exclude RPS interest expense, RPS debt cost amortisation and the non-cash redemption loss; retain finance income, swap movements and reported accounting tax. Operating measures use June-ending ACCC sources. Reported amounts and adjustment bridge are preserved in the regulatory inputs and Sydney reconciliation CSV.',
+  'Shareholder payouts',
+    'Canadian authorities have structural zero shareholder payouts. BNE/MEL/PER use ACCC dividends paid (missing stays missing; other shareholder financing may not be captured). Sydney uses ordinary cash dividends plus RPS cash interest; excludes return of capital and non-cash transactions.',
+  'Cash capital investment',
+    'Observed cash outlays on capital assets and investment property, before grants or disposal proceeds; excludes separately disclosed intangibles and capitalised borrowing costs where possible. Canadian bundled capital/intangible amounts cannot always be separated. Calgary deducts positive changes in related payables. Source report scope may differ from ACCC; Sydney uses SCACH calendar years. Neither payouts nor investment is an operating expense or a forecast.',
   'Source audit',
     'Reported = source observation, including sign standardisation and unit changes; derived = a new measure calculated from financial components; assumed = an analytical convention (for example, Canadian zero income-tax expense). Source IDs identify repeated documents.',
   'Canadian input classifications',
@@ -934,7 +985,7 @@ methodology <- tribble(
   'Australian CPI source',
     'ABS Consumer Price Index, June quarter 2025, Table 1, All-groups CPI, series A2325846C. Each financial-year CPI averages September, December, March and June quarters.',
   'Calculation sheets',
-    'Financial calculations: original amounts, source price basis, CPI adjustment, exchange rate and per-passenger formulas follow left to right. Profit and margin calculations: keyed lookups retrieve explicit financial measures; arithmetic and margins are separate. Reported net income is not re-derived.',
+    'Financial calculations: original amounts, source price basis, CPI adjustment, exchange rate and per-passenger formulas follow left to right. Profit and margin calculations: keyed lookups retrieve explicit financial measures; arithmetic and margins are separate. Net income uses the comparative source measure (Sydney adjusted for RPS).',
   'Excel lookup keys',
     'XLOOKUP selects pooled annual figures and profitability inputs using visible country, airport, year and measure keys (passengers use country, airport and year). Input keys are checked for uniqueness in R. Lookups use direct return columns, and numeric criteria distinguish unavailable values from genuine zeroes; row order is irrelevant. Lookup formulas contain line breaks for readability. XLOOKUP requires a compatible modern version of Excel.',
   'Highlighted headings',
@@ -969,8 +1020,10 @@ var_dictionary <- tribble(
   'abnormal_items', 'ACCC reported abnormal items',
   'profit_before_tax', 'Profit before income tax',
   'accounting_income_tax_expense', 'Accounting income-tax expense, not cash taxes',
-  'net_income', 'Reported net income / profit after tax',
-  'net_profit_margin_pct', 'Net income / matching source revenue, percentage points'
+  'net_income', 'Net income / profit after tax (Sydney before RPS remuneration and redemption loss)',
+  'net_profit_margin_pct', 'Net income / matching source revenue, percentage points',
+  'shareholder_payouts', 'Cash shareholder payouts (Sydney dividends plus RPS interest; other Australia ACCC dividends; Canada zero)',
+  'cash_capital_investment', 'Observed cash investment in capital assets and investment property; see source limitations'
 )
 if (!setequal(var_dictionary$variable, keep_vars)) {
   stop('Methodology variable dictionary is out of sync with comparison CSVs: ',
@@ -1370,7 +1423,7 @@ add_data_sheet(sheet_names$profit, profit_annual,
                'Profit and margin calculations | annual',
                paste0('Amounts in millions of 2025 CAD; margins are percentages. ',
                       'Australian impairment bridge term is zero by model convention. ',
-                      'Reported net income is not reconstructed; pooled margins below.'),
+                      'Net income uses the comparative source measure (Sydney adjusted for RPS); pooled margins below.'),
                'AnnualProfitMargins', freeze_cols = 3L)
 
 # Write a second normal Excel table below the first one. This deliberately

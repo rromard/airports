@@ -204,8 +204,11 @@ financial_measures <- c(
   operating_expenses = "Operating expenses",
   ebitda = "EBITDA",
   ebit = "EBIT",
+  interest_financing_costs = "Financing costs",
   profit_before_tax = "Pre-tax profit",
   net_income = "Net income",
+  cash_capital_investment = "Cash capital investment",
+  shareholder_payouts = "Shareholder payouts",
   ebitda_margin_pct = "EBITDA margin",
   ebit_margin_pct = "EBIT margin",
   net_profit_margin_pct = "Net profit margin")
@@ -216,14 +219,15 @@ financial <- annual_abs |>
     names_to = "metric", values_to = "value") |>
   mutate(metric_label = unname(financial_measures[metric]),
     unit = if_else(grepl("_pct$", metric), "percent", "2025 CAD millions"),
-    reporting_basis = if_else(country == "Australia",
-      "FY 2024-25", "CY 2025")) |>
+    reporting_basis = case_when(
+      airport == "SYD" & metric %in% c("interest_financing_costs", "profit_before_tax", "net_income", "net_profit_margin_pct", "cash_capital_investment", "shareholder_payouts") ~ "CY 2025 (SCACH)",
+      country == "Australia" ~ "FY 2024-25", TRUE ~ "CY 2025")) |>
   select(country, airport, year, reporting_basis, metric,
     metric_label, value, unit)
 export(financial, "03_current_financials_2025.csv",
   "Current Canadian–Australian airport financials",
   "Annual absolute financial comparison CSV",
-  "Operating margin is EBITDA/revenue, not after-capital net profit. Australia FY versus Canada CY; source-specific accounting limitations remain.")
+  "Operating margin is EBITDA/revenue, not after-capital net profit. Sydney net profit is adjusted for RPS remuneration and redemption loss; payouts include ordinary dividends and cash RPS interest. BNE/MEL/PER payouts are ACCC reported dividends. Cash investment is observed cash outlay, not depreciation; intangible assets may be bundled in Canadian inputs. Australia FY versus Canada CY; Sydney below-operating measures and cash investment use SCACH CY.")
 
 # 4. AUSTRALIAN AIRPORT TAXATION: two already assembled source panels.
 # Tax figures here are source AUD, not 2025 CAD. Do not equate
