@@ -262,7 +262,8 @@ if (is.null(tax_rates)) {
       "ato_payable_rate", "cash_taxable_income_rate",
       "taxable_accounting_income_ratio", "cash_tax_revenue_ratio",
       "ato_statutory_tax", "ato_statutory_less_payable",
-      "ato_payable_above_statutory", "accounting_expense_less_cash",
+      "ato_payable_above_statutory", "expected_tax_on_accounting_profit",
+      "tax_gap", "ato_payable_less_cash", "accounting_expense_less_cash",
       "statutory_ebt_less_cash", "statutory_ebit_less_cash"),
     "Australian airport tax rates")
   check_keys(tax_rates, c("airport", "fyear"), "Australian airport tax rates")
@@ -272,7 +273,7 @@ if (is.null(tax_rates)) {
     "04_australia_tax_cash_accounting_2016_2025.csv",
     "Australian airport taxation",
     "airport_tax_with_cash.R: ACCC regulatory accounts + ATO tax transparency",
-    "Nominal AUD. ATO payable/taxable income is a tax-return ratio; ACCC accounting ETR and cash/accounting ETR use ACCC EBT. Cross-source ratios are diagnostic, not necessarily same-entity. ATO non-positive blanks are flagged and represented by zero; unmatched records and missing ACCC cash payments remain NA. Accounting expense less cash, 30% of positive EBT less cash and 30% of positive EBIT less cash are separate benchmarks, not tax avoidance estimates.")
+    "Nominal AUD. ATO payable/taxable income is a tax-return ratio; ACCC accounting ETR and cash/accounting ETR use ACCC EBT. Cross-source ratios are diagnostic, not necessarily same-entity. ATO non-positive blanks are flagged and represented by zero; unmatched records and missing ACCC cash payments remain NA. Tax gap follows the Corporate Knights / Toronto Star broad benchmark: 30% of signed ACCC accounting EBT less cash taxes paid. It includes deferral and other tax reductions, not necessarily noncompliance. ATO payable less cash and other benchmarks are distinct; verify Sydney historical EBT before publication.")
 }
 tax_periods <- input_csv(file.path(tax_dir, "aus_airport_tax_periods.csv"),
                           required = FALSE)
@@ -281,12 +282,13 @@ if (!is.null(tax_periods)) {
     c("airport", "period", "n_years", "n_ato_matched", "n_cash_reported",
       "ato_taxable_income", "ato_tax_payable", "reg_profit_before_tax",
       "reg_cash_tax_paid", "ato_payable_rate", "cash_accounting_etr",
-      "cash_taxable_income_rate"), "Australian airport tax periods")
+      "cash_taxable_income_rate", "expected_tax_on_accounting_profit",
+      "tax_gap", "ato_payable_less_cash"), "Australian airport tax periods")
   check_keys(tax_periods, c("airport", "period"), "Australian airport tax periods")
   export(tax_periods, "04c_australia_tax_periods.csv",
     "Australian airport taxation",
     "airport_tax_with_cash.R: period totals and ratios",
-    "Nominal AUD. Ratios of sums, not annual average rates. Missing observations propagate to totals; ATO non-positive taxable income uses zero proxy rather than measured losses. Period 2015-2020 includes FY2019-20 and is not strictly pre-pandemic.")
+    "Nominal AUD. Ratios of sums, not annual average rates. Missing observations propagate to totals; ATO non-positive taxable income uses zero proxy rather than measured losses. Period 2015-2020 includes FY2019-20 and is not strictly pre-pandemic. Tax gap uses 30% of cumulative signed accounting EBT less cumulative cash payments, allowing losses to offset profits; no imputation of missing cash.")
 }
 ato_airport <- input_csv(file.path(tax_dir,
   "ato_airport_tax_2013_2025.csv"), required = FALSE)
