@@ -253,10 +253,17 @@ if (is.null(tax_rates)) {
     "Run the existing airport_tax_with_cash.R analysis, then rerun presentation exports. ACCC cash-flow tax paid, ATO tax payable, and accounting tax expense are distinct concepts.")
 } else {
   require_columns(tax_rates,
-    c("airport", "fyear", "total_revenue", "profit_before_tax",
-      "tax_expense", "cash_tax_paid", "tax_payable",
-      "gross_tax_expense_rate", "net_tax_payable_rate",
-      "cash_tax_profit_rate", "cash_tax_revenue_ratio", "tax_gap"),
+    c("airport", "fyear", "ato_abn", "ato_company", "ato_matched",
+      "ato_total_income", "ato_taxable_income", "ato_tax_payable",
+      "ato_taxable_income_nonpositive", "ato_tax_payable_nonpositive",
+      "reg_total_revenue", "reg_ebit", "reg_profit_before_tax",
+      "reg_tax_expense", "reg_cash_tax_paid", "reg_cash_tax_missing",
+      "accounting_etr", "payable_accounting_etr", "cash_accounting_etr",
+      "ato_payable_rate", "cash_taxable_income_rate",
+      "taxable_accounting_income_ratio", "cash_tax_revenue_ratio",
+      "ato_statutory_tax", "ato_statutory_less_payable",
+      "ato_payable_above_statutory", "accounting_expense_less_cash",
+      "statutory_ebt_less_cash", "statutory_ebit_less_cash"),
     "Australian airport tax rates")
   check_keys(tax_rates, c("airport", "fyear"), "Australian airport tax rates")
   export(tax_rates |>
@@ -265,7 +272,21 @@ if (is.null(tax_rates)) {
     "04_australia_tax_cash_accounting_2016_2025.csv",
     "Australian airport taxation",
     "airport_tax_with_cash.R: ACCC regulatory accounts + ATO tax transparency",
-    "Amounts as reported in AUD. ACCC cash-flow tax paid, ACCC accounting tax expense and ATO tax payable differ. Sydney benchmark_tax is a synthetic 30% of EBIT; other airports use accounting tax expense, so tax_gap is not a uniform statutory-tax counterfactual. Missing cash-tax disclosures were set to zero in source model.")
+    "Nominal AUD. ATO payable/taxable income is a tax-return ratio; ACCC accounting ETR and cash/accounting ETR use ACCC EBT. Cross-source ratios are diagnostic, not necessarily same-entity. ATO non-positive blanks are flagged and represented by zero; unmatched records and missing ACCC cash payments remain NA. Accounting expense less cash, 30% of positive EBT less cash and 30% of positive EBIT less cash are separate benchmarks, not tax avoidance estimates.")
+}
+tax_periods <- input_csv(file.path(tax_dir, "aus_airport_tax_periods.csv"),
+                          required = FALSE)
+if (!is.null(tax_periods)) {
+  require_columns(tax_periods,
+    c("airport", "period", "n_years", "n_ato_matched", "n_cash_reported",
+      "ato_taxable_income", "ato_tax_payable", "reg_profit_before_tax",
+      "reg_cash_tax_paid", "ato_payable_rate", "cash_accounting_etr",
+      "cash_taxable_income_rate"), "Australian airport tax periods")
+  check_keys(tax_periods, c("airport", "period"), "Australian airport tax periods")
+  export(tax_periods, "04c_australia_tax_periods.csv",
+    "Australian airport taxation",
+    "airport_tax_with_cash.R: period totals and ratios",
+    "Nominal AUD. Ratios of sums, not annual average rates. Missing observations propagate to totals; ATO non-positive taxable income uses zero proxy rather than measured losses. Period 2015-2020 includes FY2019-20 and is not strictly pre-pandemic.")
 }
 ato_airport <- input_csv(file.path(tax_dir,
   "ato_airport_tax_2013_2025.csv"), required = FALSE)
@@ -282,7 +303,7 @@ if (is.null(ato_airport)) {
   export(ato_airport, "04b_australia_ato_entities_2013_2025.csv",
     "Australian airport taxation",
     "airport_tax_with_cash.R: ATO corporate tax transparency workbooks",
-    "ATO company entities do not always coincide with airport operating-company or group consolidated boundaries; SYD reporting entity changes in 2022-23.")
+    "ATO company entities do not always coincide with airport operating-company or group consolidated boundaries; SYD reporting entity changes in 2022-23. Non-positive taxable income and tax payable blanks are represented by zero with flags; zero taxable income is not a measured loss.")
 }
 
 # 5. FINANCING CASES: assumptions and matching 2025 outcomes.
