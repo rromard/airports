@@ -154,8 +154,15 @@ dw_notes <- function(dataset) {
 #          cash_taxable_income_rate)
 # write_chart(tax_rate_chart, "australian_tax_rates")
 #
-# For a uniform statutory EBIT benchmark use statutory_ebit_less_cash;
-# it is not an estimate of tax avoidance.
+# EXAMPLE: broad corporate income tax gap, nominal AUD.
+# Prefer cumulative periods to reduce annual timing effects.
+# tax_gap_chart <- dw$australia_tax_periods |>
+#   select(airport, period, expected_tax_on_accounting_profit,
+#          reg_cash_tax_paid, tax_gap)
+# write_chart(tax_gap_chart, "australian_tax_gap")
+#
+# Review Sydney historical ACCC EBT before publication. The gap is a
+# statutory accounting-profit benchmark, not assessed unpaid tax.
 #
 # EXAMPLE: financial comparison
 #
