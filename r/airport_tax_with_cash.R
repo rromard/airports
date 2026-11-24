@@ -63,6 +63,11 @@ ato_tax <- tibble(file = files, year = as.integer(str_extract(basename(files), "
             tax_payable) |> 
   mutate(
     across(total_income:tax_payable, parse_number),
+    # ATO suppresses amounts of zero or less. Keep flags for source blanks;
+    # zero is a non-positive-income proxy, NOT a measured taxable loss.
+    # https://www.ato.gov.au/businesses-and-organisations/corporate-tax-measures-and-assurance/large-business/corporate-tax-transparency/report-of-entity-tax-information
+    taxable_income_nonpositive = is.na(taxable_income),
+    tax_payable_nonpositive = is.na(tax_payable),
     across(c(taxable_income, tax_payable), ~replace_na(.x, 0))
   ) |> 
   filter(!is.na(company))
@@ -101,7 +106,9 @@ airports_tax <- ato_tax |>
             year_end,
             total_income,
             taxable_income,
-            tax_payable) 
+            tax_payable,
+            taxable_income_nonpositive,
+            tax_payable_nonpositive)
 
 
 write_csv(
@@ -246,7 +253,8 @@ reg_profit <- map2_dfr(reg_files, fyears, function(file, fyear) {
       values[which(!is.na(values))[1]]
     }
     
-    # Some Melbourne figures are in dollars rather than $'000
+    # Existing unit heuristic retained pending verification of every source sheet.
+    # Export the applied factor and sheet name for review.
     multiplier <- if (get_value("^total revenue$") > 1e8) 1 else 1000
     
     cash_tax <- get_cash_tax()
@@ -260,13 +268,13 @@ reg_profit <- map2_dfr(reg_files, fyears, function(file, fyear) {
         get_value("^earnings before tax \\(ebt\\)$") * multiplier,
       tax_expense =
         -get_value("^(tax charge|income tax benefit)$") * multiplier,
-      # Source cash-flow outflows are negative; report positive tax paid.
-      # Treat Sydney's blank disclosures as zero, as established separately.
-      cash_tax_paid = if_else(
-        airport == "SYD" & is.na(cash_tax),
-        0,
-        -cash_tax * multiplier
-      )
+      # Source cash-flow outflows are negative; refunds are negative tax paid.
+      # Do not infer a zero cash payment from a blank disclosure.
+      cash_tax_paid = -cash_tax * multiplier,
+      reg_cash_tax_missing = is.na(cash_tax),
+      reg_source_file = basename(file),
+      reg_source_sheet = sheet,
+      reg_unit_multiplier = multiplier
     )
   })
 })
@@ -295,72 +303,117 @@ ato_four <- ato_tax |>
               abn == "54654912197",
               abn == "18165056360")
   ) |>
-  select(airport, fyear, tax_payable)
+  transmute(
+    airport, fyear,
+    ato_abn = abn, ato_company = company, ato_income_year = income_year,
+    ato_total_income = total_income,
+    ato_taxable_income = taxable_income,
+    ato_tax_payable = tax_payable,
+    ato_taxable_income_nonpositive = taxable_income_nonpositive,
+    ato_tax_payable_nonpositive = tax_payable_nonpositive
+  )
 
-# Calculate tax rates
+# Calculate tax rates -----------------------------------------------------
+# Only the ATO payable/taxable-income ratio is entirely tax-return based.
+# Cross-source ratios are diagnostic: the legal entities may differ.
+positive_ratio <- function(numerator, denominator) {
+  if_else(!is.na(denominator) & denominator > 0,
+          numerator / denominator, NA_real_)
+}
+
+assert_unique_tax_keys <- function(x, label) {
+  if (anyNA(x$airport) || anyNA(x$fyear) ||
+      anyDuplicated(x[c("airport", "fyear")])) {
+    stop("Missing or duplicate airport-year keys: ", label)
+  }
+}
+
+assert_unique_tax_keys(reg_profit, "ACCC")
+assert_unique_tax_keys(ato_four, "ATO")
+
 tax_rates <- reg_profit |>
-  left_join(ato_four, by = c("airport", "fyear")) |>
+  rename(
+    reg_total_revenue = total_revenue,
+    reg_ebit = operating_profit,
+    reg_profit_before_tax = profit_before_tax,
+    reg_tax_expense = tax_expense,
+    reg_cash_tax_paid = cash_tax_paid
+  ) |>
+  left_join(ato_four, by = c("airport", "fyear"), relationship = "one-to-one") |>
   mutate(
     year_end = parse_number(fyear) + 1,
-    period = ifelse(year_end %in% 2016:2020, "2015-2020", "2021-2025"),
-    
-    cash_tax_paid = replace_na(cash_tax_paid, 0),
-    
-    benchmark_profit = if_else(
-      airport == "SYD",
-      operating_profit,
-      profit_before_tax
+    period = if_else(year_end %in% 2016:2020, "2015-2020", "2021-2025"),
+    ato_matched = !is.na(ato_abn),
+    statutory_rate = 0.30,
+    ato_statutory_tax = statutory_rate * ato_taxable_income,
+    ato_statutory_less_payable = ato_statutory_tax - ato_tax_payable,
+    # Tolerate one dollar of rounding, but flag rather than rewrite source data.
+    ato_payable_above_statutory = ato_tax_payable > ato_statutory_tax + 1,
+    ato_payable_rate = positive_ratio(ato_tax_payable, ato_taxable_income),
+    accounting_etr = positive_ratio(reg_tax_expense, reg_profit_before_tax),
+    cash_accounting_etr = positive_ratio(reg_cash_tax_paid, reg_profit_before_tax),
+    payable_accounting_etr = positive_ratio(ato_tax_payable, reg_profit_before_tax),
+    cash_taxable_income_rate = positive_ratio(reg_cash_tax_paid, ato_taxable_income),
+    taxable_accounting_income_ratio = if_else(
+      ato_taxable_income_nonpositive %in% FALSE,
+      positive_ratio(ato_taxable_income, reg_profit_before_tax), NA_real_
     ),
-    
-    benchmark_tax = if_else(
-      airport == "SYD",
-      pmax(operating_profit, 0) * 0.30,
-      tax_expense
-    ),
-    
-    gross_tax_expense_rate = if_else(
-      profit_before_tax > 0,
-      tax_expense / profit_before_tax,
-      NA_real_
-    ),
-    net_tax_payable_rate = if_else(
-      profit_before_tax > 0,
-      tax_payable / profit_before_tax,
-      NA_real_
-    ),
-    cash_tax_profit_rate = if_else(
-      benchmark_profit > 0,
-      cash_tax_paid / benchmark_profit,
-      NA_real_
-    ),
-    cash_tax_revenue_ratio = cash_tax_paid / total_revenue,
-    
-    tax_gap = benchmark_tax - cash_tax_paid
+    cash_tax_revenue_ratio = positive_ratio(reg_cash_tax_paid, reg_total_revenue),
+    # Uniform benchmarks, kept separate from each other. Neither is a
+    # measure of tax avoidance or a same-year cash tax liability.
+    accounting_expense_less_cash = reg_tax_expense - reg_cash_tax_paid,
+    statutory_ebt_less_cash = pmax(reg_profit_before_tax, 0) * statutory_rate - reg_cash_tax_paid,
+    statutory_ebit_less_cash = pmax(reg_ebit, 0) * statutory_rate - reg_cash_tax_paid
   ) |>
   arrange(airport, fyear) |>
-  relocate(fyear, year_end, period)
+  relocate(airport, fyear, year_end, period)
 
-# Keep the presentation-facing tax CSV's established columns, adding the
-# original tax-gap calculation (Sydney: 30% of positive operating profit
-# less cash tax; others: accounting tax expense less cash tax).
-write_csv(
-  tax_rates |>
-    select(airport, fyear, total_revenue, profit_before_tax,
-           tax_expense, cash_tax_paid, tax_payable,
-           gross_tax_expense_rate, net_tax_payable_rate,
-           cash_tax_profit_rate, cash_tax_revenue_ratio, tax_gap),
-  here("output", "taxation", "aus_airport_tax_rates.csv")
-)
+if (nrow(tax_rates) != length(fyears) * length(airport_names)) {
+  stop("Unexpected number of ACCC airport-year records")
+}
+if (any(!tax_rates$ato_matched)) {
+  warning("Unmatched ATO airport-years; see ato_matched in tax export")
+}
+if (any(tax_rates$ato_payable_above_statutory, na.rm = TRUE)) {
+  warning("ATO tax payable exceeds 30% of ATO taxable income; review flagged records")
+}
+if (any(tax_rates$reg_cash_tax_missing)) {
+  warning("Missing ACCC cash tax observations retained as NA")
+}
 
-tax_rates |> view()
-  ggplot(aes(year_end, tax_gap, fill = airport)) +
-  geom_col() +
-  theme_minimal() +
-  facet_wrap(~airport)
+# Regression diagnostic for the Perth FY2018-19 observation that motivated
+# this revision. Warn if published inputs have since been revised.
+per_check <- tax_rates |> filter(airport == "PER", fyear == "2018-19")
+if (nrow(per_check) != 1L ||
+    !isTRUE(abs(per_check$ato_taxable_income - 198150762) < 1) ||
+    !isTRUE(abs(per_check$ato_tax_payable - 58978216) < 1)) {
+  warning("Perth FY2018-19 ATO values differ from the verified reference; review source")
+}
 
-tax_rates |> 
-  summarise(across(c(total_revenue:benchmark_tax,tax_gap), sum), .by = c(period, airport)) |> 
-  mutate(gross_tax_rate = tax_expense / profit_before_tax,
-         cash_tax_rate = cash_tax_paid / profit_before_tax,
-         )
+# Period ratios use sums, not averages of annual ratios. Missing cash or
+# unmatched ATO records propagate NA rather than silently understating totals.
+# Non-positive ATO taxable income is a zero proxy, not a net loss estimate.
+tax_periods <- tax_rates |>
+  summarise(
+    n_years = n(),
+    n_ato_matched = sum(ato_matched),
+    n_cash_reported = sum(!reg_cash_tax_missing),
+    n_ato_taxable_nonpositive = sum(ato_taxable_income_nonpositive, na.rm = TRUE),
+    across(c(reg_total_revenue, reg_ebit, reg_profit_before_tax,
+             reg_tax_expense, reg_cash_tax_paid, ato_total_income,
+             ato_taxable_income, ato_tax_payable, ato_statutory_tax,
+             ato_statutory_less_payable, accounting_expense_less_cash,
+             statutory_ebt_less_cash, statutory_ebit_less_cash), sum),
+    .by = c(period, airport)
+  ) |>
+  mutate(
+    ato_payable_rate = positive_ratio(ato_tax_payable, ato_taxable_income),
+    accounting_etr = positive_ratio(reg_tax_expense, reg_profit_before_tax),
+    cash_accounting_etr = positive_ratio(reg_cash_tax_paid, reg_profit_before_tax),
+    payable_accounting_etr = positive_ratio(ato_tax_payable, reg_profit_before_tax),
+    cash_taxable_income_rate = positive_ratio(reg_cash_tax_paid, ato_taxable_income),
+    cash_tax_revenue_ratio = positive_ratio(reg_cash_tax_paid, reg_total_revenue)
+  )
 
+write_csv(tax_rates, here("output", "taxation", "aus_airport_tax_rates.csv"))
+write_csv(tax_periods, here("output", "taxation", "aus_airport_tax_periods.csv"))
