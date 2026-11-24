@@ -212,6 +212,7 @@ openxlsx::addStyle(wb, revenue_impacts_sheet,
                         fontColour = '#193954'), rows = 1L, cols = 1L)
 openxlsx::writeData(wb, revenue_impacts_sheet,
   paste('All amounts in millions of 2025 CAD; per-passenger amounts in 2025 CAD.',
+        'Parking and ground transportation rates use estimated enplaned passengers (50% of total passengers); all other rates use total passengers.',
         'Increase (%) uses observed 2025 revenue in the SAME category as the denominator.',
         'Allocation methods distribute required additional revenue, not observed revenue.',
         'These are illustrative category revenue uplifts, NOT airport-fee or passenger-incidence forecasts.'),
@@ -221,7 +222,7 @@ openxlsx::addStyle(wb, revenue_impacts_sheet,
   openxlsx::createStyle(wrapText = TRUE, valign = 'center',
                         fontColour = '#445569'), rows = 2L, cols = 1L)
 openxlsx::setRowHeights(wb, revenue_impacts_sheet, rows = c(1L,2L),
-                        heights = c(34,46))
+                        heights = c(34,60))
 # Two-level group headers: dollar amounts, passenger rates, and uplift,
 # with all four categories adjacent within each comparison measure.
 impact_supergroups <- list(
@@ -259,7 +260,18 @@ for (g in impact_groups) {
   openxlsx::writeData(wb, revenue_impacts_sheet, g$label,
                       startRow = 5L, startCol = g$from)
 }
-openxlsx::writeDataTable(wb, revenue_impacts_sheet, impact_wide,
+# Worksheet-only presentation adjustment. The CSVs and model retain
+# total passengers as their common denominator.
+impact_sheet_data <- impact_wide
+parking_rate_cols <- paste(c('Observed', 'Additional', 'Counterfactual'),
+                          'per pax Parking & transport')
+stopifnot(all(parking_rate_cols %in% names(impact_sheet_data)))
+impact_sheet_data[parking_rate_cols] <-
+  lapply(impact_sheet_data[parking_rate_cols], function(x) x * 2)
+names(impact_sheet_data)[match(parking_rate_cols, names(impact_sheet_data))] <-
+  paste(c('Observed', 'Additional', 'Counterfactual'),
+        'Parking & transport per est. enplaned pax')
+openxlsx::writeDataTable(wb, revenue_impacts_sheet, impact_sheet_data,
   startRow = 6L, tableName = 'RevenueImpacts2025',
   tableStyle = 'TableStyleMedium2')
 for (g in impact_groups) {
@@ -286,7 +298,7 @@ openxlsx::setColWidths(wb, revenue_impacts_sheet,
 openxlsx::setColWidths(wb, revenue_impacts_sheet,
   cols = 6:33, widths = 24)
 openxlsx::setRowHeights(wb, revenue_impacts_sheet,
-  rows = c(4L,5L,6L), heights = c(26,26,52))
+  rows = c(4L,5L,6L), heights = c(26,26,68))
 impact_airport_change <- which(!duplicated(impact_wide$Airport))
 if (length(impact_airport_change) != 5L) {
   stop('Revenue impacts have unexpected airport group boundaries.',
