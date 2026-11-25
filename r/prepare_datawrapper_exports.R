@@ -263,6 +263,150 @@ export(financial, "03_current_financials_2025.csv",
   "Annual absolute and per-passenger financial comparison CSVs",
   "Operating margin is EBITDA/revenue, not after-capital net profit. Sydney net profit is adjusted for RPS remuneration and redemption loss; payouts include ordinary dividends and cash RPS interest. BNE/MEL/PER payouts are ACCC reported dividends. Cash investment is observed cash outlay, not depreciation; intangible assets may be bundled in Canadian inputs. Australia FY versus Canada CY; Sydney below-operating measures and cash investment use SCACH CY. Parking/ground transportation yield uses estimated enplanements (50% of total passengers), following GTAA 2024 Annual Report p. 45; not a parking price or observed enplanement count.")
 
+# 3b. FULL HARMONIZED FINANCIAL PANEL: annual and pooled, airport and BIG4.
+# Preserve the existing 2025 export for compatibility. Use the upstream
+# audit for actual passenger counts and the matching margin denominators
+# (particularly SCACH consolidated revenue for Sydney net income).
+full_financial_measures <- c(financial_measures,
+  aero_excl_aif = "Aeronautical revenue excluding AIF",
+  aif_revenue = "Airport improvement fees",
+  parking_transport_revenue = "Parking and ground transportation revenue",
+  non_aero_minus_parking = "Non-aeronautical revenue excluding parking and ground transportation",
+  labour = "Labour costs",
+  purchased_services_other = "Purchased services and other costs",
+  federal_ground_rent = "Federal ground rent",
+  pilt = "Payments in lieu of taxes",
+  depreciation_amortisation = "Depreciation and amortisation",
+  asset_impairment = "Asset impairment",
+  abnormal_items = "Abnormal items",
+  accounting_income_tax_expense = "Accounting income tax expense")
+full_metrics <- names(full_financial_measures)
+margin_metrics <- full_metrics[grepl("_pct$", full_metrics)]
+money_metrics <- setdiff(full_metrics, margin_metrics)
+pooled_keys <- c("country", "airport")
+pooled_abs <- input_csv(file.path(base_comparison,
+  "comparison_pooled_absolute_2023_2025.csv"))
+pooled_pp <- input_csv(file.path(base_comparison,
+  "comparison_pooled_pp_2023_2025.csv"))
+
+check_financial_pair <- function(a, p, keys, expected_n, label) {
+  for (d in list(a, p)) {
+    check_keys(d, keys, label)
+    require_columns(d, full_metrics, label)
+    if (nrow(d) != expected_n ||
+        !setequal(setdiff(names(d), keys), full_metrics))
+      stop("Unexpected financial coverage: ", label)
+  }
+  if (!identical(a[keys], p[keys]) ||
+      !isTRUE(all.equal(a[margin_metrics], p[margin_metrics],
+                        tolerance = 1e-10)))
+    stop("Financial companion tables disagree: ", label)
+}
+check_financial_pair(annual_abs, annual_pp, annual_keys, 24L, "annual financials")
+check_financial_pair(pooled_abs, pooled_pp, pooled_keys, 8L, "pooled financials")
+if (!setequal(annual_abs$year, 2023:2025) ||
+    !setequal(pooled_abs$airport, all_airports) ||
+    any(table(annual_abs$airport) != 3L))
+  stop("Unexpected annual or pooled financial coverage.")
+
+comparison_audit <- readRDS(file.path(base_comparison,
+  "financial_comparison_audit_2023_2025.rds"))
+financial_basis <- comparison_audit$financial_source_annual
+require_columns(financial_basis, c(annual_keys, "passengers",
+  "adjustment_to_2025", "fx_cad_per_unit", "ebitda_ebit_revenue_basis",
+  "net_income_revenue_basis"), "financial comparison audit")
+check_keys(financial_basis, annual_keys, "financial comparison audit")
+basis_annual <- financial_basis |>
+  transmute(country, airport, year, passengers_m = passengers / 1e6,
+    operating_revenue_basis_m = ebitda_ebit_revenue_basis *
+      adjustment_to_2025 * fx_cad_per_unit,
+    net_revenue_basis_m = net_income_revenue_basis *
+      adjustment_to_2025 * fx_cad_per_unit)
+# Missing or inapplicable measures remain NA; never silently sum a partial
+# set of airports or treat an unavailable accounting line as zero.
+complete_sum <- function(x) {
+  if (all(is.finite(x))) sum(x) else NA_real_
+}
+basis_pooled <- basis_annual |>
+  group_by(country, airport) |>
+  summarise(across(c(passengers_m, operating_revenue_basis_m,
+    net_revenue_basis_m), complete_sum), .groups = "drop")
+
+financial_panel <- function(a, p, basis, keys, period_label) {
+  airport_abs <- a |>
+    select(all_of(keys), all_of(full_metrics)) |>
+    left_join(basis, by = keys)
+  if (any(!is.finite(airport_abs$passengers_m)) ||
+      any(airport_abs$passengers_m <= 0))
+    stop("Missing or invalid financial passenger denominators.")
+  for (nm in money_metrics) {
+    if (!isTRUE(all.equal(airport_abs[[nm]] / airport_abs$passengers_m,
+                         p[[nm]], tolerance = 1e-7)))
+      stop("Financial passenger denominator mismatch: ", nm)
+  }
+  country_keys <- setdiff(keys, "airport")
+  if (any((airport_abs |> count(across(all_of(country_keys))))$n != 4L))
+    stop("Expected four airports per country-period.")
+  big4_abs <- airport_abs |>
+    group_by(across(all_of(country_keys))) |>
+    summarise(across(all_of(c(money_metrics, "passengers_m",
+      "operating_revenue_basis_m", "net_revenue_basis_m")), complete_sum),
+      .groups = "drop") |>
+    mutate(airport = "BIG4",
+      ebitda_margin_pct = if_else(operating_revenue_basis_m > 0,
+        100 * ebitda / operating_revenue_basis_m, NA_real_),
+      ebit_margin_pct = if_else(operating_revenue_basis_m > 0,
+        100 * ebit / operating_revenue_basis_m, NA_real_),
+      net_profit_margin_pct = if_else(net_revenue_basis_m > 0,
+        100 * net_income / net_revenue_basis_m, NA_real_))
+  big4_pp <- big4_abs |>
+    mutate(across(all_of(money_metrics), ~ .x / passengers_m))
+  abs_all <- bind_rows(airport_abs, big4_abs)
+  pp_all <- bind_rows(p |> left_join(basis, by = keys), big4_pp)
+  to_long <- function(d, measures, unit_label) {
+    d |>
+      select(all_of(keys), passengers_m, all_of(measures)) |>
+      pivot_longer(all_of(measures), names_to = "metric", values_to = "value") |>
+      mutate(unit = unit_label)
+  }
+  result <- bind_rows(
+    to_long(abs_all, money_metrics, "2025 CAD millions"),
+    to_long(pp_all, money_metrics, "2025 CAD per passenger"),
+    to_long(abs_all, margin_metrics, "percent"),
+    to_long(pp_all, "parking_transport_revenue",
+      "2025 CAD per estimated enplaned passenger") |>
+      mutate(value = value / parking_enplanement_share))
+  if (!"year" %in% keys) result$year <- NA_integer_
+  result |>
+    mutate(period = if_else(is.na(year), period_label, as.character(year)),
+      aggregation = if_else(airport == "BIG4", "country BIG4", "airport"),
+      metric_label = unname(full_financial_measures[metric]),
+      reporting_basis = case_when(
+        country == "Canada" ~ "CY",
+        airport %in% c("SYD", "BIG4") & metric %in% c(
+          "interest_financing_costs", "profit_before_tax",
+          "accounting_income_tax_expense", "net_income", "net_profit_margin_pct",
+          "cash_capital_investment", "shareholder_payouts") ~
+          if_else(airport == "SYD", "CY (SCACH)", "Mixed FY / CY (SCACH)"),
+        TRUE ~ "June-ending FY")) |>
+    select(country, airport, aggregation, period, year, reporting_basis,
+      passengers_m, metric, metric_label, unit, value)
+}
+
+full_financial <- bind_rows(
+  financial_panel(annual_abs, annual_pp, basis_annual, annual_keys, "annual"),
+  financial_panel(pooled_abs, pooled_pp, basis_pooled, pooled_keys, "2023-2025")) |>
+  arrange(country, airport, period, metric, unit)
+check_keys(full_financial, c("country", "airport", "period", "metric", "unit"),
+  "full financial presentation panel")
+if (nrow(full_financial) != 40L * (2L * length(money_metrics) +
+    length(margin_metrics) + 1L))
+  stop("Unexpected full financial presentation panel size.")
+export(full_financial, "03c_full_financials_2023_2025.csv",
+  "Current Canadian–Australian airport financials, full annual and pooled panel",
+  "Annual and pooled comparison CSVs; financial comparison audit passenger and margin bases",
+  "All published harmonized metrics; monetary amounts in real 2025 CAD. Annual and pooled 2023-2025; pooled absolute figures are three-year sums, not annual averages. BIG4 yields and margins are ratios of sums, not means of airport ratios. Missing or inapplicable inputs remain NA, including country totals without complete coverage. Sydney below-operating results and cash investment use SCACH CY; Australian BIG4 combines June FY and Sydney CY for those metrics. Per-passenger rates use the upstream passenger series, including Sydney FY passenger counts for SCACH CY metrics. Parking alternative yield estimates enplanements as half of total passengers and must not be stacked with total-passenger rates. Metrics overlap; not all are additive. Profitability is whole-airport, not segment-specific.")
+
 # 4. AUSTRALIAN AIRPORT TAXATION: two already assembled source panels.
 # Tax figures here are source AUD, not 2025 CAD. Do not equate
 # ATO tax payable with ACCC cash-flow tax paid or accounting tax expense.
