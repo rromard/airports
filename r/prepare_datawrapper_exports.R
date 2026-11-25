@@ -116,6 +116,55 @@ export(airline_top2, "00c_top_two_airline_share_2022.csv",
   "ACCC June 2022 airline competition report, Figure 11",
   "Harmonized two-largest-airline-group shares of domestic scheduled seat capacity for a single week in 2022. Not directly comparable to more recent Australian passenger-share measures.")
 
+# Updated domestic seat capacity: matched CAPA/OAG week in 2024, plus
+# Transport Canada's 2025 annual figures as a separate context observation.
+# Retain source rounding; do not normalize the reported shares to 100.
+# Consolidate Qantas and Jetstar by ownership, not by brand. "Other"
+# represents multiple carriers, never a single firm in concentration ratios.
+airlines_recent <- input_csv(file.path(context_dir,
+  "domestic_airline_capacity_2024_2025.csv"))
+require_columns(airlines_recent, c("country", "airline", "airline_group",
+  "named_group_rank", "domestic_seat_capacity_share_pct", "year",
+  "measurement_period", "source", "notes"), "recent domestic airline shares")
+check_keys(airlines_recent, c("country", "year", "airline"), "recent airline brands")
+recent_totals <- airlines_recent |>
+  group_by(country, year) |>
+  summarise(total = sum(domestic_seat_capacity_share_pct), .groups = "drop")
+if (nrow(airlines_recent) != 19L || nrow(recent_totals) != 3L ||
+    anyNA(airlines_recent$domestic_seat_capacity_share_pct) ||
+    any(airlines_recent$domestic_seat_capacity_share_pct < 0) ||
+    any(abs(recent_totals$total - 100) > 1.01))
+  stop("Invalid recent domestic seat capacity shares.")
+export(airlines_recent, "00e_domestic_airline_capacity_brands_2024_2025.csv",
+  "Domestic airline market structure, reported brands",
+  "CAPA/OAG 26 August 2024 charts and Transport Canada 2025 annual report",
+  "2024 same scheduled domestic seat-capacity week for both countries; 2025 Canada annual only. Published rounding retained; 2024 totals 99.9%, 2025 Canada 99%. Qantas and Jetstar are separate brands but one group.")
+airline_groups_recent <- airlines_recent |>
+  group_by(country, year, measurement_period, source, airline_group,
+    named_group_rank) |>
+  summarise(domestic_seat_capacity_share_pct =
+    sum(domestic_seat_capacity_share_pct), .groups = "drop") |>
+  arrange(year, country, named_group_rank)
+check_keys(airline_groups_recent, c("country", "year", "airline_group"),
+  "recent airline group shares")
+export(airline_groups_recent, "00f_domestic_airline_capacity_groups_2024_2025.csv",
+  "Domestic airline market structure, ownership groups",
+  "CAPA/OAG 26 August 2024 charts and Transport Canada 2025 annual report",
+  "Qantas Airways plus Jetstar consolidated; other carriers retained as an aggregate residual, not a firm. Compare matched August 2024 observations across countries; Canadian 2025 annual observation is supplementary.")
+airline_concentration_recent <- airline_groups_recent |>
+  group_by(country, year, measurement_period, source) |>
+  summarise(
+    top_two_share_pct = sum(domestic_seat_capacity_share_pct[
+      !is.na(named_group_rank) & named_group_rank <= 2L]),
+    top_four_named_share_pct = sum(domestic_seat_capacity_share_pct[
+      !is.na(named_group_rank) & named_group_rank <= 4L]),
+    reported_total_pct = sum(domestic_seat_capacity_share_pct),
+    .groups = "drop")
+export(airline_concentration_recent, "00g_domestic_airline_concentration_2024_2025.csv",
+  "Domestic airline concentration",
+  "Grouped CAPA/OAG and Transport Canada scheduled domestic seat shares",
+  "Sum of two or four largest individually named airline groups in the source; not normalized. Other carriers are not a firm. Top-four named share may not be exact CR4 if an undisclosed carrier exceeds a named smaller carrier. Matched 2024 week is preferred for cross-country comparison.")
+
 policy <- input_csv(file.path(context_dir, "policy_context.csv"))
 require_columns(policy, c("topic", "country", "statement",
   "source", "interpretation"), "policy context")
