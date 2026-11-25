@@ -496,6 +496,128 @@ export(scenarios |>
   "Acquisition model scenario_comparison.csv",
   "2025 acquisition sensitivity; verify units by metric in source model. Does not contain a prediction of actual sale price.")
 
+# 5b. Standalone valuation and financing bridge, independent of profit targets.
+# Annual source amounts are nominal; pooled amounts are already in 2025 CAD.
+# Stock amounts are not divided by years_in_period. Pooled EBITDA and rent
+# flows are annualized for valuation, and incremental interest for display.
+acquisition_source <- input_csv(file.path(base_acquisition,
+  "acquisition_scenarios.csv"))
+acquisition_money <- c("ebitda_m", "ground_rent_m", "rent_adjusted_ebitda_m",
+  "valuation_ebitda_m", "estimated_sale_value_m", "gross_debt_m", "cash_m",
+  "equity_purchase_consideration_m", "new_acquisition_debt_m",
+  "buyer_equity_contribution_m", "total_gross_debt_m",
+  "net_financing_cost_m", "additional_acquisition_interest_m")
+acquisition_keys <- c("airport", "year_label", "scenario_id")
+acquisition_parameters <- c("purchase_multiple", "acquisition_debt_share",
+  "acquisition_interest_rate")
+require_columns(acquisition_source, c(acquisition_keys, "year", "period",
+  "years_in_period", "cpi_factor", "passengers",
+  acquisition_parameters, acquisition_money,
+  "actual_total_gross_debt_to_sale_value"), "standalone acquisition source")
+require_columns(assumptions, c("scenario_id", "scenario_name",
+  acquisition_parameters), "acquisition assumptions")
+check_keys(assumptions, "scenario_id", "acquisition assumptions")
+check_keys(acquisition_source, acquisition_keys, "standalone acquisition source")
+acquisition <- acquisition_source |>
+  select(all_of(acquisition_keys), year, period, years_in_period,
+    cpi_factor, passengers, all_of(acquisition_parameters),
+    all_of(acquisition_money), actual_total_gross_debt_to_sale_value) |>
+  left_join(assumptions |>
+    select(scenario_id, scenario_name, all_of(acquisition_parameters)),
+    by = c("scenario_id", acquisition_parameters)) |>
+  mutate(year_label = as.character(year_label))
+if (nrow(acquisition) != 60L ||
+    !setequal(acquisition$airport, c(can_airports, "BIG4")) ||
+    !setequal(acquisition$year_label, c("2023", "2024", "2025", "2023-25")) ||
+    !setequal(acquisition$scenario_name, c("Low-cost", "Central", "High-cost")) ||
+    anyNA(acquisition[c(acquisition_keys, "scenario_name", acquisition_money,
+      acquisition_parameters, "cpi_factor", "years_in_period", "passengers",
+      "actual_total_gross_debt_to_sale_value")]) ||
+    any(acquisition$cpi_factor <= 0 | acquisition$passengers <= 0) ||
+    any(!acquisition$period %in% c("Annual", "Pooled")) ||
+    any(acquisition$years_in_period != if_else(acquisition$period == "Pooled", 3L, 1L)) ||
+    any(acquisition$period == "Pooled" & abs(acquisition$cpi_factor - 1) > 1e-8))
+  stop("Invalid standalone acquisition coverage or conversion inputs.")
+acquisition <- acquisition |>
+  mutate(across(all_of(acquisition_money), ~ .x * cpi_factor),
+    observed_annual_ebitda_m = ebitda_m / years_in_period,
+    annual_ground_rent_saving_m = ground_rent_m / years_in_period,
+    existing_net_debt_m = gross_debt_m - cash_m,
+    annual_existing_net_financing_cost_m = net_financing_cost_m / years_in_period,
+    annual_additional_acquisition_interest_m =
+      additional_acquisition_interest_m / years_in_period,
+    annual_combined_net_financing_cost_m =
+      annual_existing_net_financing_cost_m + annual_additional_acquisition_interest_m,
+    additional_interest_per_pax = additional_acquisition_interest_m * 1e6 / passengers,
+    acquisition_debt_share_pct = 100 * acquisition_debt_share,
+    acquisition_interest_rate_pct = 100 * acquisition_interest_rate,
+    post_purchase_gross_debt_to_ev_pct = 100 * actual_total_gross_debt_to_sale_value)
+acq_close <- function(a, b) {
+  all(is.finite(a) & is.finite(b) &
+    abs(a - b) <= 1e-7 * pmax(1, abs(a), abs(b)))
+}
+with(acquisition, {
+  if (!acq_close(valuation_ebitda_m,
+        observed_annual_ebitda_m + annual_ground_rent_saving_m) ||
+      !acq_close(estimated_sale_value_m, valuation_ebitda_m * purchase_multiple) ||
+      !acq_close(equity_purchase_consideration_m, estimated_sale_value_m - existing_net_debt_m) ||
+      !acq_close(new_acquisition_debt_m, equity_purchase_consideration_m * acquisition_debt_share) ||
+      !acq_close(equity_purchase_consideration_m, new_acquisition_debt_m + buyer_equity_contribution_m) ||
+      !acq_close(total_gross_debt_m, gross_debt_m + new_acquisition_debt_m) ||
+      !acq_close(annual_additional_acquisition_interest_m, new_acquisition_debt_m * acquisition_interest_rate) ||
+      !acq_close(actual_total_gross_debt_to_sale_value, total_gross_debt_m / estimated_sale_value_m))
+    stop("Standalone acquisition transaction or annual financing checks failed.")
+})
+# A wide table makes transaction bridges and financing stacks easy to select.
+# Keep annual-equivalent flow measures and stock measures together, but do not
+# mix three-year flows into a transaction valuation or annual interest chart.
+acquisition_fields <- c(
+  observed_annual_ebitda_m = "Observed annual EBITDA",
+  annual_ground_rent_saving_m = "Annual federal ground rent saving",
+  valuation_ebitda_m = "Annual rent-adjusted valuation EBITDA",
+  estimated_sale_value_m = "Estimated enterprise value",
+  gross_debt_m = "Existing gross debt",
+  cash_m = "Existing cash",
+  existing_net_debt_m = "Existing net debt",
+  equity_purchase_consideration_m = "Equity purchase consideration",
+  new_acquisition_debt_m = "New acquisition debt",
+  buyer_equity_contribution_m = "Buyer equity contribution",
+  total_gross_debt_m = "Post-acquisition gross debt",
+  annual_existing_net_financing_cost_m = "Existing annual net financing costs",
+  annual_additional_acquisition_interest_m = "Additional annual acquisition interest",
+  annual_combined_net_financing_cost_m = "Combined annual net financing costs")
+acquisition_wide <- acquisition |>
+  select(airport, year, period, year_label, years_in_period,
+    scenario_id, scenario_name, purchase_multiple, acquisition_debt_share_pct,
+    acquisition_interest_rate_pct, all_of(names(acquisition_fields)),
+    post_purchase_gross_debt_to_ev_pct, additional_interest_per_pax) |>
+  arrange(airport, year_label, purchase_multiple)
+export(acquisition_wide, "06b_acquisition_financing_2023_2025.csv",
+  "Standalone acquisition valuation and financing",
+  "Acquisition model acquisition_scenarios.csv and scenario_assumptions.csv",
+  "All monetary amounts real 2025 CAD millions except additional_interest_per_pax (2025 CAD/passenger). Annual-equivalent EBITDA, rent and interest flows; pooled debt and cash are mean real stocks, not sums. EV = annual rent-adjusted EBITDA times multiple; equity consideration = EV less existing net debt. New debt share applies to equity consideration, not EV or total debt; existing debt remains. Rates and debt ratios are percentage points. BIG4 is the model aggregate. Illustrative financing packages, before profitability targets.")
+acquisition_long <- acquisition_wide |>
+  pivot_longer(all_of(c(names(acquisition_fields), "purchase_multiple",
+    "acquisition_debt_share_pct", "acquisition_interest_rate_pct",
+    "post_purchase_gross_debt_to_ev_pct", "additional_interest_per_pax")),
+    names_to = "metric", values_to = "value") |>
+  mutate(metric_label = case_when(
+    metric == "purchase_multiple" ~ "EV / rent-adjusted EBITDA multiple",
+    metric == "acquisition_debt_share_pct" ~ "New debt share of equity consideration",
+    metric == "acquisition_interest_rate_pct" ~ "New borrowing interest rate",
+    metric == "post_purchase_gross_debt_to_ev_pct" ~ "Post-acquisition gross debt / EV",
+    metric == "additional_interest_per_pax" ~ "Additional acquisition interest per passenger",
+    TRUE ~ unname(acquisition_fields[metric])),
+    unit = case_when(metric == "purchase_multiple" ~ "multiple",
+      grepl("_pct$", metric) ~ "percent",
+      metric == "additional_interest_per_pax" ~ "2025 CAD per passenger",
+      TRUE ~ "2025 CAD millions"))
+check_keys(acquisition_long, c(acquisition_keys, "metric"), "standalone acquisition long")
+export(acquisition_long, "06c_acquisition_financing_long_2023_2025.csv",
+  "Standalone acquisition valuation and financing",
+  "06b acquisition financing wide export",
+  "Same valuation and financing measures as 06b, in metric/value/unit format. Monetary flow measures are annual-equivalent; stocks are transaction amounts. Not additive across all metrics; use only the relevant components of each bridge.")
+
 # 6. PROFITABILITY TARGETS: 2025 x airport x scenario x benchmark.
 bridge <- input_csv(file.path(base_bridge,
   "profitability_bridge_scenarios_long.csv"))
