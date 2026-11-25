@@ -506,105 +506,95 @@ if (nrow(per_check) != 1L ||
   warning("Perth FY2018-19 ATO values differ from the verified reference; review source")
 }
 
-# Principal tax-gap analysis uses consolidated annual-report data, not ACCC EBT.
-# Keep original ACCC and ATO variables for diagnostics. The versioned input uses
-# nominal AUD millions (as transcribed); all derived/output amounts are AUD.
-# Sydney is a SCACH subgroup scenario, not an observed ultimate-parent tax gap.
-sydney_investor_tax_rate <- 0.15
+# Principal corporate tax gap: existing ACCC regulatory accounts for BNE/MEL/PER;
+# SCACH adjusted accounting EBT for Sydney only. All output amounts nominal AUD.
+# Parent-level Sydney cash tax is unknown; zero is an explicit scenario, not data.
 sydney_assume_zero_parent_cash_tax <- TRUE
 
-consolidated_path <- here("preserved_data", "consolidated_tax_inputs.csv")
-if (!file.exists(consolidated_path)) stop("Missing consolidated tax inputs: ", consolidated_path)
-consolidated <- read_csv(consolidated_path, show_col_types = FALSE,
-  col_types = cols(year_end = col_integer(), reporting_period_end = col_date(),
+scach_path <- here("preserved_data", "scach_tax_inputs_2016_2025.csv")
+if (!file.exists(scach_path)) stop("Missing Sydney tax inputs: ", scach_path)
+scach <- read_csv(scach_path, show_col_types = FALSE,
+  col_types = cols(
+    airport = col_character(), year_end = col_integer(),
+    reporting_entity = col_character(), reporting_period_end = col_date(),
     reported_ebt_aud_m = col_double(), accounting_tax_expense_aud_m = col_double(),
-    cash_tax_paid_aud_m = col_double(), shareholder_interest_aud_m = col_double(),
+    cash_tax_paid_aud_m = col_double(), cash_tax_status = col_character(),
+    shareholder_interest_aud_m = col_double(),
     rps_debt_cost_amortisation_aud_m = col_double(),
-    exceptional_financing_adjustment_aud_m = col_double()))
-
-required_consolidated <- c(
+    exceptional_financing_adjustment_aud_m = col_double(),
+    source_file = col_character(), source_url = col_character(),
+    income_statement_pdf_page = col_integer(), finance_costs_pdf_page = col_integer(),
+    cash_flow_pdf_page = col_integer(), notes = col_character()
+  ))
+required_scach <- c(
   "airport", "year_end", "reporting_entity", "reporting_period_end",
   "reported_ebt_aud_m", "accounting_tax_expense_aud_m", "cash_tax_paid_aud_m",
   "cash_tax_status", "shareholder_interest_aud_m", "rps_debt_cost_amortisation_aud_m",
   "exceptional_financing_adjustment_aud_m", "source_file", "source_url",
-  "source_page", "notes"
+  "income_statement_pdf_page", "finance_costs_pdf_page", "cash_flow_pdf_page", "notes"
 )
-if (!all(required_consolidated %in% names(consolidated))) {
-  stop("Consolidated tax input schema incomplete")
+if (!all(required_scach %in% names(scach))) stop("Sydney tax input schema incomplete")
+if (nrow(problems(scach))) stop("Parsing errors in Sydney tax inputs")
+if (anyNA(scach[c("airport", "year_end")]) ||
+    any(scach$airport != "SYD") ||
+    !identical(sort(scach$year_end), 2016:2025)) {
+  stop("Sydney tax inputs must contain exactly one row per year, 2016–2025")
 }
-expected_consolidated_keys <- expand_grid(airport = names(airport_names), year_end = 2016:2025)
-if (anyNA(consolidated[c("airport", "year_end")]) ||
-    anyDuplicated(consolidated[c("airport", "year_end")]) ||
-    nrow(anti_join(expected_consolidated_keys, consolidated, by = c("airport", "year_end"))) ||
-    nrow(anti_join(consolidated, expected_consolidated_keys, by = c("airport", "year_end")))) {
-  stop("Consolidated tax inputs must contain one row per airport/year, 2016–2025")
+required_nonmissing <- setdiff(required_scach, c("cash_tax_paid_aud_m", "source_url", "notes"))
+if (anyNA(scach[required_nonmissing]) ||
+    any(scach$cash_tax_status != "not_separately_disclosed_at_scach") ||
+    any(!is.na(scach$cash_tax_paid_aud_m)) ||
+    any(scach$reporting_period_end != as.Date(paste0(scach$year_end, "-12-31")))) {
+  stop("Unexpected SCACH missingness, cash-tax disclosure status or reporting dates")
 }
-if (anyNA(consolidated[c("reporting_entity", "reporting_period_end", "reported_ebt_aud_m",
-                         "accounting_tax_expense_aud_m", "cash_tax_status", "source_file",
-                         "source_page", "shareholder_interest_aud_m",
-                         "rps_debt_cost_amortisation_aud_m",
-                         "exceptional_financing_adjustment_aud_m")]) ||
-    any(consolidated$cash_tax_status == "reported" & is.na(consolidated$cash_tax_paid_aud_m)) ||
-    any(!consolidated$cash_tax_status %in% c("reported", "not_disclosed_at_scach")) ||
-    any(consolidated$airport != "SYD" & consolidated$cash_tax_status != "reported") ||
-    any(consolidated$cash_tax_status == "not_disclosed_at_scach" &
-          !is.na(consolidated$cash_tax_paid_aud_m)) ||
-    any(consolidated$airport != "SYD" &
-          (consolidated$shareholder_interest_aud_m != 0 |
-           consolidated$rps_debt_cost_amortisation_aud_m != 0 |
-           consolidated$exceptional_financing_adjustment_aud_m != 0))) {
-  stop("Invalid consolidated tax inputs or missing source metadata")
-}
-if (any(format(consolidated$reporting_period_end, "%Y") != consolidated$year_end) ||
-    any(format(consolidated$reporting_period_end, "%m-%d") !=
-          if_else(consolidated$airport == "SYD", "12-31", "06-30"))) {
-  stop("Unexpected consolidated reporting dates")
-}
-stopifnot(is.numeric(sydney_investor_tax_rate), length(sydney_investor_tax_rate) == 1L,
-          !is.na(sydney_investor_tax_rate),
-          sydney_investor_tax_rate >= 0, sydney_investor_tax_rate <= 0.30)
-
-consolidated <- consolidated |>
+scach <- scach |>
   transmute(
-    airport, year_end, reporting_entity, reporting_period_end, cash_tax_status,
-    consolidated_reported_ebt = reported_ebt_aud_m * 1e6,
-    consolidated_tax_expense = accounting_tax_expense_aud_m * 1e6,
-    consolidated_cash_tax_paid = cash_tax_paid_aud_m * 1e6,
+    airport, year_end,
+    scach_reporting_entity = reporting_entity,
+    scach_reporting_period_end = reporting_period_end,
+    scach_reported_ebt = reported_ebt_aud_m * 1e6,
+    scach_tax_expense = accounting_tax_expense_aud_m * 1e6,
+    scach_cash_tax_paid = cash_tax_paid_aud_m * 1e6,
+    scach_cash_tax_status = cash_tax_status,
     shareholder_interest = shareholder_interest_aud_m * 1e6,
     rps_debt_cost_amortisation = rps_debt_cost_amortisation_aud_m * 1e6,
     exceptional_financing_adjustment = exceptional_financing_adjustment_aud_m * 1e6,
-    consolidated_source_file = source_file,
-    consolidated_source_page = source_page,
-    consolidated_source_url = source_url,
-    consolidated_source_notes = notes
+    scach_source_file = source_file, scach_source_url = source_url,
+    scach_income_statement_pdf_page = income_statement_pdf_page,
+    scach_finance_costs_pdf_page = finance_costs_pdf_page,
+    scach_cash_flow_pdf_page = cash_flow_pdf_page,
+    scach_source_notes = notes
   )
 
 tax_rates <- tax_rates |>
-  left_join(consolidated, by = c("airport", "year_end"), relationship = "one-to-one") |>
+  left_join(scach, by = c("airport", "year_end"), relationship = "one-to-one") |>
   mutate(
     tax_gap_method = if_else(airport == "SYD",
-      "Illustrative SCACH adjusted EBT; assumed investor taxation",
-      "Consolidated accounting EBT and reported cash taxes"),
-    analysis_ebt = consolidated_reported_ebt + shareholder_interest +
-      rps_debt_cost_amortisation + exceptional_financing_adjustment,
-    consolidated_accounting_etr = positive_ratio(consolidated_tax_expense, consolidated_reported_ebt),
-    cash_etr = positive_ratio(consolidated_cash_tax_paid, analysis_ebt),
-    # Missing parent-level cash taxes are NEVER represented as observed zero.
-    # Explicitly assume zero only for the Sydney illustrative scenario.
-    cash_tax_assumed = airport == "SYD" & cash_tax_status == "not_disclosed_at_scach" &
+      "Illustrative SCACH adjusted corporate tax gap",
+      "ACCC regulatory accounting EBT and reported cash taxes"),
+    analysis_period_end = if_else(airport == "SYD", scach_reporting_period_end,
+                                  as.Date(paste0(year_end, "-06-30"))),
+    analysis_reported_ebt = if_else(airport == "SYD", scach_reported_ebt,
+                                    reg_profit_before_tax),
+    analysis_tax_expense = if_else(airport == "SYD", scach_tax_expense, reg_tax_expense),
+    analysis_ebt = if_else(airport == "SYD",
+      scach_reported_ebt + shareholder_interest + rps_debt_cost_amortisation +
+        exceptional_financing_adjustment, reg_profit_before_tax),
+    analysis_cash_tax_paid = if_else(airport == "SYD", scach_cash_tax_paid, reg_cash_tax_paid),
+    analysis_accounting_etr = positive_ratio(analysis_tax_expense, analysis_reported_ebt),
+    cash_etr = positive_ratio(analysis_cash_tax_paid, analysis_ebt),
+    cash_tax_assumed = airport == "SYD" & is.na(analysis_cash_tax_paid) &
       sydney_assume_zero_parent_cash_tax,
-    cash_tax_for_gap = if_else(cash_tax_assumed, 0, consolidated_cash_tax_paid),
-    investor_tax_rate = if_else(airport == "SYD", sydney_investor_tax_rate, 0),
-    # Accrued RPS expense is a proxy for qualifying owner remuneration;
-    # not actual ultimate distributions or observed investor taxes.
-    assumed_investor_tax = investor_tax_rate * shareholder_interest,
+    cash_tax_for_gap = if_else(cash_tax_assumed, 0, analysis_cash_tax_paid),
     expected_tax_on_accounting_profit = statutory_rate * analysis_ebt,
-    tax_gap = expected_tax_on_accounting_profit - cash_tax_for_gap - assumed_investor_tax
+    tax_gap = expected_tax_on_accounting_profit - cash_tax_for_gap
   )
-
+if (anyNA(tax_rates$analysis_ebt[tax_rates$airport == "SYD"])) {
+  stop("Missing adjusted Sydney EBT after join")
+}
 if (any(tax_rates$cash_tax_assumed)) {
-  warning("Sydney tax gap is hypothetical: zero ultimate-parent cash tax assumed; ",
-          "actual payments unverified; investor credit uses accrued RPS expense.")
+  warning("Sydney tax gap is hypothetical: zero corporate cash tax assumed; ",
+          "actual payments unverified. Investor-level taxation is outside scope.")
 }
 
 # Period ratios use sums, not averages of annual ratios. Missing cash or
@@ -615,26 +605,24 @@ tax_periods <- tax_rates |>
     n_years = n(),
     n_ato_matched = sum(ato_matched),
     n_cash_reported = sum(!reg_cash_tax_missing),
-    n_consolidated_cash_reported = sum(!is.na(consolidated_cash_tax_paid)),
+    n_analysis_cash_reported = sum(!is.na(analysis_cash_tax_paid)),
     n_cash_assumed = sum(cash_tax_assumed),
     tax_gap_method = first(tax_gap_method),
-    investor_tax_rate = first(investor_tax_rate),
     n_ato_taxable_nonpositive = sum(ato_taxable_income_nonpositive, na.rm = TRUE),
     across(c(reg_total_revenue, reg_ebit, reg_profit_before_tax,
              reg_tax_expense, reg_cash_tax_paid, ato_total_income,
              ato_taxable_income, ato_tax_payable, ato_statutory_tax,
              ato_statutory_less_payable, reg_expected_tax_on_accounting_profit,
-             reg_tax_gap, consolidated_reported_ebt, consolidated_tax_expense,
-             consolidated_cash_tax_paid, shareholder_interest, rps_debt_cost_amortisation,
-             exceptional_financing_adjustment, analysis_ebt, cash_tax_for_gap,
-             assumed_investor_tax, expected_tax_on_accounting_profit,
+             reg_tax_gap, analysis_reported_ebt, analysis_tax_expense,
+             analysis_cash_tax_paid, analysis_ebt, cash_tax_for_gap,
+             expected_tax_on_accounting_profit,
              tax_gap, ato_payable_less_cash, accounting_expense_less_cash,
              statutory_ebt_less_cash, statutory_ebit_less_cash), sum),
     .by = c(period, airport)
   ) |>
   mutate(
-    consolidated_accounting_etr = positive_ratio(consolidated_tax_expense, consolidated_reported_ebt),
-    cash_etr = positive_ratio(consolidated_cash_tax_paid, analysis_ebt),
+    analysis_accounting_etr = positive_ratio(analysis_tax_expense, analysis_reported_ebt),
+    cash_etr = positive_ratio(analysis_cash_tax_paid, analysis_ebt),
     ato_payable_rate = positive_ratio(ato_tax_payable, ato_taxable_income),
     accounting_etr = positive_ratio(reg_tax_expense, reg_profit_before_tax),
     cash_accounting_etr = positive_ratio(reg_cash_tax_paid, reg_profit_before_tax),
@@ -647,15 +635,31 @@ tax_periods <- tax_rates |>
 # SCACH CY2025 EBT: 97.4 + 136.3 + 19.4 + 471.8 = 724.9 million.
 for (panel in list(tax_rates, tax_periods)) {
   residual <- with(panel, tax_gap -
-    (0.30 * analysis_ebt - cash_tax_for_gap - assumed_investor_tax))
+    (0.30 * analysis_ebt - cash_tax_for_gap))
   if (any(abs(residual) > 0.01, na.rm = TRUE)) stop("Tax gap identity failed")
 }
 syd_2025 <- tax_rates |> filter(airport == "SYD", year_end == 2025)
 stopifnot(nrow(syd_2025) == 1L,
           abs(syd_2025$analysis_ebt - 724.9e6) < 1,
-          is.na(syd_2025$consolidated_cash_tax_paid),
+          is.na(syd_2025$analysis_cash_tax_paid),
           is.na(syd_2025$cash_etr))
-if (any(tax_periods$n_years != 5L)) stop("Incomplete five-year tax periods")
+if (nrow(tax_periods) != 8L || any(tax_periods$n_years != 5L)) {
+  stop("Incomplete five-year tax periods")
+}
+# Ensure the principal measure has not changed ACCC data for the other airports.
+for (panel in list(tax_rates, tax_periods)) {
+  other <- panel |> filter(airport != "SYD")
+  stopifnot(isTRUE(all.equal(other$analysis_ebt, other$reg_profit_before_tax)),
+            isTRUE(all.equal(other$analysis_cash_tax_paid, other$reg_cash_tax_paid)),
+            isTRUE(all.equal(other$tax_gap, other$reg_tax_gap)))
+}
+stopifnot(all(is.na(tax_rates$cash_etr[tax_rates$airport == "SYD"])),
+          all(is.na(tax_periods$cash_etr[tax_periods$airport == "SYD"])))
+if (sydney_assume_zero_parent_cash_tax) {
+  stopifnot(all(tax_periods$n_cash_assumed[tax_periods$airport == "SYD"] == 5L))
+} else {
+  stopifnot(all(is.na(tax_periods$tax_gap[tax_periods$airport == "SYD"])))
+}
 
 write_csv(tax_rates, here("output", "taxation", "aus_airport_tax_rates.csv"))
 write_csv(tax_periods, here("output", "taxation", "aus_airport_tax_periods.csv"))
