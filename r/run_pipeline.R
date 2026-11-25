@@ -3,7 +3,8 @@
 #   source(here::here('r', 'run_pipeline.R'))
 #
 # Default: prepare financial comparisons, run the acquisition counterfactual,
-# then build both documented and integrated production workbooks.
+# refresh Australian taxation, build both production workbooks, and export
+# presentation data.
 # Earlier revenue-growth counterfactual / sensitivity / plotting stages are
 # retained as an OPTIONAL, separate branch (disabled by default).
 #
@@ -13,6 +14,8 @@
 
 # ---- CONFIGURATION --------------------------------------------------------
 rebuild_australian_sources <- FALSE
+refresh_australian_tax    <- TRUE
+run_presentation_exports  <- TRUE
 refresh_canadian_sources  <- TRUE
 run_financial_comparison <- TRUE
 run_acquisition_model    <- TRUE
@@ -106,6 +109,18 @@ if (rebuild_australian_sources) {
   }
 }
 
+# ---- 1B. AUSTRALIAN TAXATION (OPTIONAL) -----------------------------------
+if (refresh_australian_tax) {
+  run_stage('Refresh Australian airport taxation',
+            'airport_tax_with_cash.R', c(
+              'output/taxation/ato_airport_tax_2013_2025.csv',
+              'output/taxation/ato_corporate_tax_2013_2025.csv',
+              'output/taxation/aus_airport_tax_rates.csv',
+              'output/taxation/aus_airport_tax_periods.csv',
+              'output/taxation/accc_tax_extraction_reconciliation.csv'
+            ))
+}
+
 # ---- 2. CANADIAN SOURCE REFRESH ------------------------------------------
 if (refresh_canadian_sources) {
   run_stage('Refresh Canadian Big 4 long-form source',
@@ -159,7 +174,7 @@ if (run_financial_comparison) {
     bindings = list(include_acquisition = run_acquisition_model))
 }
 
-# ---- 5. ORIGINAL REVENUE-GROWTH COUNTERFACTUAL (OPTIONAL) -----------------
+# ---- 6. ORIGINAL REVENUE-GROWTH COUNTERFACTUAL (OPTIONAL) -----------------
 # These scripts are NOT the acquisition-financing analysis. They are retained
 # so earlier growth-path figures can be regenerated when needed.
 if (run_legacy_counterfactual) {
@@ -183,6 +198,22 @@ if (run_legacy_counterfactual) {
               'airport_counterfactual_plots.R',
               'output/airport_counterfactual/plots/15_pooled_ebitda_margin_change.png')
   }
+}
+
+# ---- 7. PRESENTATION EXPORTS (OPTIONAL) -----------------------------------
+# Run after all enabled producers, including the legacy branch. When a
+# producer is disabled, the exporter consumes existing outputs; its own
+# required-input/schema checks still apply.
+if (run_presentation_exports) {
+  run_stage('Prepare Datawrapper presentation exports',
+            'prepare_datawrapper_exports.R', c(
+              'output/presentation_data/00_data_catalog.csv',
+              if (refresh_australian_tax) c(
+                'output/presentation_data/04_australia_tax_cash_accounting_2016_2025.csv',
+                'output/presentation_data/04b_australia_ato_entities_2013_2025.csv',
+                'output/presentation_data/04c_australia_tax_periods.csv'
+              )
+            ))
 }
 
 message('\nPipeline completed successfully.')

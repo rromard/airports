@@ -1,0 +1,11 @@
+airport,year_end,reporting_entity,reporting_period_end,reported_ebt_aud_m,accounting_tax_expense_aud_m,cash_tax_paid_aud_m,currency_swap_valuation_loss_aud_m,interest_rate_swap_valuation_loss_aud_m,debt_retranslation_loss_aud_m,forward_exchange_valuation_loss_aud_m,source_file,income_statement_pdf_page,cash_flow_pdf_page,finance_revenue_pdf_page,finance_expense_pdf_page,notes
+PER,2016,Perth Airport Development Group Pty Ltd,2016-06-30,144.134,41.698,42.477,-82.398,28.161,13.586,0,per_16.pdf,23,24,39,40,Retain AUD 36.889m loss on initial currency-swap notional exchange (not identified as unrealised valuation); exclude only identified valuation changes.
+PER,2017,Perth Airport Development Group Pty Ltd,2017-06-30,172.691,53.503,18.236,66.674,-26.197,-30.284,0,per_17.pdf,19,20,33,34,
+PER,2018,Perth Airport Development Group Pty Ltd,2018-06-30,112.583,32.983,58.102,17.709,3.66,37.473,0,per_18.pdf,47,49,76,77,
+PER,2019,Perth Airport Development Group Pty Ltd,2019-06-30,143.916,41.54,43.295,-71.205,-37.068,54.353,97.236,per_19.pdf,53,55,78,79,
+PER,2020,Perth Airport Development Group Pty Ltd,2020-06-30,82.634,25.965,57.273,-111.197,25.212,17.525,29.997,per_20.pdf,51,53,73,74,Income statement EBT 82.634; tax note 82.633 (rounding difference).
+PER,2021,Perth Airport Development Group Pty Ltd,2021-06-30,-96.453,-31.979,13.425,184.819,40.657,-118.455,2.215,per_22.pdf,43,45,65,66,2021 comparative; FY2022 finance revenue note identifies 118.455m as USPP debt retranslation gain; FY2021 note describes it differently. FY2022 comparative tax benefit used.
+PER,2022,Perth Airport Development Group Pty Ltd,2022-06-30,211.428,61.808,22.64,-158.6,-63.525,129.26,-11.302,per_22.pdf,43,45,65,66,
+PER,2023,Perth Airport Development Group Pty Ltd,2023-06-30,154.822,44.39,61.224,27.479,-5.243,46.572,-17.351,per_2023.pdf,44,46,66,67,
+PER,2024,Perth Airport Development Group Pty Ltd,2024-06-30,177.4,52.9,34.0,1.2,10.0,1.2,6.9,per_2025.pdf,37,40,44,44,"2024 comparative, rounded to AUD 0.1m. Income statement EBT 177.4; tax note 177.3. Supplied per_2024.pdf is sustainability report."
+PER,2025,Perth Airport Development Group Pty Ltd,2025-06-30,269.6,84.1,-19.0,5.7,16.5,16.6,-26.5,per_2025.pdf,37,40,44,44,Net cash tax refund; financial statements in AUD millions.

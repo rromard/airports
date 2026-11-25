@@ -37,20 +37,32 @@ Sources:
 | Canada–Australia comparison | `01_airport_scale_2025.csv`, `01b_big4_aggregate_2025.csv` | Eight individual airports and the two four-airport country aggregates; passenger volumes, revenue mix and EBITDA margins |
 | Australian real revenue | `02_actual_aeronautical_yield_2015_2025.csv` | 2015=100 indexed lines for real aeronautical revenue per passenger |
 | Current finances | `03_current_financials_2025.csv` | Small multiples of revenue, spending, EBITDA, EBIT, financing costs, after-tax profit, shareholder payouts and cash capital investment |
-| Tax | `04_australia_tax_cash_accounting_2016_2025.csv`, `04b_australia_ato_entities_2013_2025.csv` (from existing tax script) | ACCC cash tax, accounting tax expense, ATO tax payable and taxable income |
+| Tax | `04_australia_tax_cash_accounting_2016_2025.csv`, `04b_australia_ato_entities_2013_2025.csv`, `04c_australia_tax_periods.csv` (from existing tax script) | Source-specific tax measures, diagnostic ratios and cumulative period totals |
 | Three acquisition cases | `05_acquisition_assumptions.csv` and `06_acquisition_scenarios_2025.csv` | Assumption comparison and acquisition cost sensitivities |
 | Profit targets | `07_profitability_targets_2025.csv` | Small multiples: extra revenue total / passenger by airport and objective |
 | Revenue composition | `08_revenue_impacts_2025.csv` | Observed vs counterfactual category revenue |
 | Observed cap/monitoring history | `09_australia_observed_real_yield_1998_2007.csv` (from existing growth script) | CPI-deflated ACCC/FAC yield; airport and unweighted BIG4 indices (1998=100) |\n| Cap-then-shock sensitivity | `09_legacy_cap_then_shock_paths.csv` (optional) | Illustrative Canadian counterfactual trajectories; **not observed Australian history** |
 | Quality | `10_australia_quality_series.csv` (optional) | Time series of one carefully chosen ACCC quality measure |
 
-The historical exports reuse the existing `airport_revenue_counterfactual.R` and its source `output/accc_legacy_vector_selected.csv`; the real-yield table is now written from that script's *already calculated* history, rather than independently deflating the original data. The tax exports reuse `airport_tax_with_cash.R`. These two scripts are outside the default production path and their outputs must exist before their presentation sections are available. Quality requires the parsed ACCC RDS.
+The historical exports reuse the existing `airport_revenue_counterfactual.R` and its source `output/accc_legacy_vector_selected.csv`; the real-yield table is now written from that script's *already calculated* history, rather than independently deflating the original data. The tax exports reuse `airport_tax_with_cash.R`. The tax script and presentation exporter now run by default in `run_pipeline.R`, controlled independently by `refresh_australian_tax` and `run_presentation_exports`. The legacy growth script remains optional; its outputs must exist before its presentation section is available. Disable presentation exports for partial runs without the required financial/acquisition inputs. Quality requires the parsed ACCC RDS.
 
 **Historical scope:** The counterfactual script already reconstructs the Australian FY1998–2007 price-cap/monitoring period from ACCC Figure 2.2, includes the 1998 Sydney FAC observation, applies Australian FY CPI, and builds three modelled Canadian growth trajectories (gradual, cap-then-shock, immediate-shock) with extrapolated points flagged. The new output `australia_observed_real_yield_1998_2007.csv` simply exports its existing `history` calculation, with per-airport and pooled indexes, so there is **no second deflation method**. The Sydney 1998 figure has different scope from ACCC Ansett-adjusted observations. Historical real-yield levels are CPI-deflated source AUD, *not* directly 2025-CAD currency amounts. Do not confuse observed historical data with modelled Canadian scenarios.
 
 **Quality:** ACCC observations identify source (airline/passenger/objective), terminal, category, measure and fiscal year. Never average noncomparable measures or combine airline with passenger responses mechanically. See [ACCC 2024–25 monitoring](https://www.accc.gov.au/about-us/publications/serial-publications/airport-monitoring-reports/airport-monitoring-report-2024-25).
 
-**Tax:** `airport_tax_with_cash.R` already downloads the ATO corporate tax-transparency workbooks (2013–14 to 2024–25), maps airport reporting entities by name and ABN, processes ACCC airport regulatory-account profits and income tax cash-flow outlays (FY2015–16 through FY2024–25), and exports `output/taxation/aus_airport_tax_rates.csv` and `ato_airport_tax_2013_2025.csv`. The presentation script reuses those validated source files **without refetching anything**. Reported tax expense, cash tax paid and ATO tax payable are distinct measures, and Sydney's 2022–23 reporting entity changes. The source `tax_gap` uses a **30% operating-profit benchmark for Sydney but accounting tax expense for other airports**, so do not plot it as though it represented a uniform statutory benchmark. The tax script also replaces missing cash-tax observations with zero; check original source disclosures before interpreting zeros. Tax exports are in source AUD, not 2025 CAD.
+**Tax:** `airport_tax_with_cash.R` downloads the ATO corporate tax-transparency workbooks (2013–14 to 2024–25), matches four airport groups by ABN, and processes ACCC regulatory accounts (FY2015–16 to FY2024–25). Run it before regenerating presentation exports; older tax CSVs must be regenerated because the combined schema has changed. All amounts are nominal source AUD, not 2025 CAD.
+
+- `ato_*` identifies tax-return amounts; `reg_*` identifies ACCC regulatory-account measures. ATO total income is not necessarily ACCC revenue, and taxable income is not accounting EBT. Sydney changes ATO reporting entity in 2022–23. Other group boundaries also need care (e.g. Melbourne/Launceston).
+- `tax_payable_to_taxable_income` = ATO tax payable / ATO taxable income; `accounting_etr` = ACCC tax expense / ACCC EBT; `cash_accounting_etr` = ACCC cash paid / ACCC EBT. `payable_accounting_etr` and `cash_taxable_income_rate` mix sources and are diagnostic, not necessarily same-entity rates. The latter is not a conventional cash ETR. `taxable_accounting_income_ratio` helps diagnose the denominator difference.
+- [ATO reporting rules](https://www.ato.gov.au/businesses-and-organisations/corporate-tax-measures-and-assurance/large-business/corporate-tax-transparency/report-of-entity-tax-information) suppress amounts of zero or less. Matched ATO records retain non-positive-field flags and a zero proxy for taxable income and tax payable; zero taxable income does not reveal the amount of any tax loss. Unmatched ATO records and unresolved ACCC cash tax remain missing; a blank cash-flow cell may represent zero when its subtotal reconciles. Annual ratios with non-positive denominators are undefined. Negative cash tax indicates a refund.
+- For BNE/MEL, the principal `expected_tax_less_cash_tax` uses the established ACCC regulatory accounts, following the broad [Corporate Knights / Toronto Star approach](https://corporateknights.com/responsible-investing/the-high-cost-of-low-corporate-taxes/): 30% of signed accounting EBT less reported cash income tax. No new annual-report transcriptions are used for these two airports. ACCC reporting boundaries and cash payments (including potential tax-sharing payments) do not necessarily correspond to the ultimate parent or direct tax-authority remittances. ATO taxable income and payable remain separate diagnostics.
+- Perth uses `preserved_data/padg_tax_inputs_2016_2025.csv` (nominal AUD millions), consolidated reported EBT, tax expense and cash tax, with signed financing valuation losses added back and gains removed. The 2024 figures are rounded 2025 comparatives; transcriptions require verification. Book-to-tax difference uses adjusted EBT less ATO taxable income (zero proxy for suppressed nonpositive income); payable gap uses expected tax less ATO payable. These are not measured deductions.
+- Sydney uses `preserved_data/scach_tax_inputs_2016_2025.csv`, to be placed in the project root's preserved_data folder before running the tax script. Ten calendar-year observations in nominal AUD millions, converted to AUD, with source and PDF page references. The input has been extracted for later user verification; the 2016 report was text-checked but not visually verified. The archive's scach_2023.pdf is the 2024 report; the 2021 tax expense is the restated comparative in 2022. The overlapping 2022–2025 reported EBT and tax expense and available 2023–2025 RPS adjustments agree with the previously preserved SCACH financial inputs.
+- Sydney's `adjusted_ebt` adds back RPS interest, RPS-specific debt establishment amortisation and the exceptional non-cash 2025 redemption loss; ordinary external borrowing costs, swap movements and operating D&A remain. The hypothetical corporate gap is 30% of this signed EBT less scenario cash tax. Actual ultimate-parent cash taxes are unverified and remain NA in `reported_cash_tax_paid` and `cash_tax_to_adjusted_ebt`; `sydney_assume_zero_parent_cash_tax` defaults to TRUE solely for the illustrative gap. Set FALSE to leave Sydney gaps missing. Neither nil ATO payable nor missing disclosure proves zero actual cash tax. Investor-level taxation is outside the corporate tax scope: no assumed shareholder tax rate, no net fiscal-impact claim. SCACH is a subgroup and calendar-year source; do not treat it as aligned to ACCC June fiscal years.
+- Use `adjusted_ebt`, `reported_cash_tax_paid`, `cash_tax_to_adjusted_ebt`, `expected_tax_on_adjusted_ebt` and `expected_tax_less_cash_tax` for principal analysis. `tax_expense_to_reported_ebt` uses reported EBT (not adjusted Perth or Sydney EBT). The existing `reg_*` and ATO ratios are retained; `cash_tax_including_assumptions` is a scenario input, not an observed Sydney payment. `04c_australia_tax_periods.csv` uses ratios of sums and signed EBT, with reported cash counts and assumed cash counts. Missing observations propagate unless the explicit Sydney scenario is enabled. The historical period 2015–2020 means years ending 2016–2020 (not strictly pre-pandemic); the second window is 2021–2025. No additional analytical outputs.
+- **Cash-flow units and blank cells:** cash tax extraction now independently applies the established magnitude heuristic to the raw cash-flow statement's receipts from customers: above AUD 100 million raw, multiply by 1; otherwise multiply by 1,000. The same threshold is used for income statement revenue separately. Excel unit headers and display formats are not reliable indicators of raw scale. A blank/dash is assigned zero only when the operating cash-flow subtotal reconciles without it (within one reporting unit); otherwise it stays missing. The underlying annual file records the source status and cash-flow multiplier. In the supplied ACCC Melbourne FY2023 sheet, the blank reconciles to zero; FY2024 and FY2025 cash tax outflows are AUD 13.557m and 94.013m, respectively, not AUD 13,557 and 94,013. These three observations are regression checks. Zero or negative cash tax numerators are valid; ETR is undefined only for nonpositive or missing EBT or missing cash tax. Do not use na.rm to conceal missing tax years.
+- **Curated chart exports:** annual and period visualization files contain 17 columns each, including statutory rate, accounting ETR, ATO payable rate, cash ETR, adjusted book-to-tax difference and payable gap. Source diagnostics remain in underlying analysis files.
+- **Overlap reconciliation:** `output/taxation/accc_tax_extraction_reconciliation.csv` compares the tax extractor with the total rows of the existing production `accc_airport_ebitda_by_activity_2022_2025.csv` for all four airports in FY2022–23 through FY2024–25 (48 comparisons: revenue, reported EBIT including abnormal items, EBT and accounting income-tax expense). Production nominal AUD millions are converted back to nominal AUD; differences exceeding AUD 1,000 (one reporting unit in  ATO taxable income AUD 198,150,762 and payable AUD 58,978,216 imply 29.76%, not 58.3% (the latter uses ACCC EBT). Cash paid of AUD 43,037,000 gives 21.72% of ATO taxable income. The ACCC income statement extraction retains its existing first-numeric-cell and unit heuristic; cash tax uses the magnitude of cash-flow receipts independently. Source file, sheet, multipliers and cash-tax status are exported for manual verification. Check the cash rows and units, especially Melbourne and Sydney, before publishing. ATO and ACCC reporting scope is not automatically reconciled.
 
 **Units and comparison cautions:** The financial comparison is in **2025 Canadian dollars**; monetary amounts are millions unless labelled per passenger. For Australia, the reported period is the fiscal year ending June 2025; Canadian observations are calendar 2025. Australian aeronautical revenue is compared with Canadian aeronautical revenue **including AIF**. No causal effect of privatization is identified, and increases in airport revenue per passenger should not be presented as increases in posted passenger charges. BIG4 aggregates in the profitability bridge are deliberately summed from the four airports, not a fifth airport.
 
@@ -109,3 +121,65 @@ to the relevant measures and the revenue-impacts table to the total category,
 one financing scenario and one profitability objective. Do not add scenarios,
 or the revenue total to its component rows. Australian payout benchmarks are
 observed amounts, not estimates of future Canadian shareholder payouts.
+000 workbooks) are flagged. The check compares unadjusted ACCC data, not Sydney's SCACH-based production adjustments, and retains both source filenames and sheet names, including possible Perth FY2023–24 revision differences. Missing/invalid reference data, missing values and discrepancies warn and are recorded in the audit rather than silently accepted. Neither extraction is overwritten; the accounting extraction remains duplicated technical debt pending a later refactor. Review every row not marked `within_tolerance` before publication. The check does not validate the non-overlapping historical years, cash tax or ATO values.
+- Perth FY2018–19 is a regression diagnostic: ATO taxable income AUD 198,150,762 and payable AUD 58,978,216 imply 29.76%, not 58.3% (the latter uses ACCC EBT). Cash paid of AUD 43,037,000 gives 21.72% of ATO taxable income. The ACCC extraction still uses the existing first-numeric-cell and unit heuristic; source file, sheet and multiplier are exported for manual verification. Check the cash rows and units, especially Melbourne and Sydney, before publishing. ATO and ACCC reporting scope is not automatically reconciled.
+
+**Units and comparison cautions:** The financial comparison is in **2025 Canadian dollars**; monetary amounts are millions unless labelled per passenger. For Australia, the reported period is the fiscal year ending June 2025; Canadian observations are calendar 2025. Australian aeronautical revenue is compared with Canadian aeronautical revenue **including AIF**. No causal effect of privatization is identified, and increases in airport revenue per passenger should not be presented as increases in posted passenger charges. BIG4 aggregates in the profitability bridge are deliberately summed from the four airports, not a fifth airport.
+
+## Remaining data acquisition
+
+The historical cap-period revenue, tax series, and country-level comparability figures are **already assembled** in the repository or this PR. Remaining work is principally (1) selecting a defensible common ACCC quality measure for comparison; (2) optional traffic composition detail beyond the ACCC's published Canada–Australia comparisons; and (3) editorial review of ATO legal-entity coverage and the varying definitions of tax benchmarks. Avoid silently substituting mixed accounting measures.
+
+The script requires R packages `dplyr`, `tidyr`, `readr` and `here`. It validates keys and expected counts on critical inputs. It deliberately does not mix financial-year and calendar-year values into a single pseudo-calendar time series.
+
+
+## Observed shareholder payouts, cash capital investment and Sydney financing
+
+The final annual and pooled comparison tables retain their existing columns and add
+`shareholder_payouts` and `cash_capital_investment`. The annual absolute values
+are millions of 2025 CAD (the same price/currency basis as the revenue
+counterfactual); annual per-passenger values and three-year pooled measures use
+the existing conversion and pooling rules. The 2025 observations are also
+available as metrics in `03_current_financials_2025.csv` (`dw$financials_2025`).
+They are observed amounts, not forecasts, and are not deducted again from
+operating profit or inserted into the counterfactual model.
+
+- Canadian shareholder payouts are structural zeros. BNE/MEL/PER use the ACCC
+  reported dividends-paid line, with unreported dividends left missing. This
+  is not an exhaustive measure of all possible related-party payments.
+- Sydney payouts include ordinary cash dividends plus cash interest paid on
+  redeemable preference shares (RPS), excluding cash capital returns and
+  non-cash distributions/redemption. The source and reconciliation retain these
+  separately for audit. Payouts may relate to earnings in other periods.
+- Sydney's comparative financing costs and profit exclude RPS interest expense,
+  debt-cost amortisation and the 2025 non-cash redemption loss. Finance income,
+  swap movements and reported accounting tax remain unchanged. This is a
+  classification of earnings before shareholder remuneration, not a
+  hypothetical estimate of borrowing costs or tax under alternative ownership.
+  Other airports retain their prior income statement definitions; the ACCC
+  interest line does not separately identify interest income.
+- Cash capital investment is outlay on capital assets and investment property,
+  excluding separately identifiable intangible expenditure, borrowing costs,
+  grants and disposal proceeds (gross of grants and disposals). Canadian reports
+  sometimes bundle intangible and physical assets; Calgary's reported investment
+  is reduced by the positive change in related payables to estimate the cash
+  outlay. The preserved input CSV records report filename, PDF page and line
+  definition. This independent cash-flow measure uses annual-report consolidation
+  boundaries, not necessarily ACCC regulatory boundaries. Sydney uses SCACH
+  calendar years, with the existing Australian FY CPI and passenger convention.
+- `preserved_data/scach_income_verified_inputs_template.csv` is the versioned
+  SCACH source; the former local regulatory-accounts path remains a fallback.
+  `preserved_data/airport_cash_capital_investment_2023_2025.csv` records the
+  capital outlay inputs for all 24 airport-years.
+- `output/airport_comparison/sydney_financing_reconciliation_2023_2025.csv`
+  and `cash_capital_investment_source_2023_2025.csv` in the same directory
+  retain the calculation details. The workbook input tabs also record them.
+
+For a chart comparing the scale of the new revenue requirements against observed
+profit, shareholder payouts and investment, filter the current-financials table
+to the relevant measures and the revenue-impacts table to the total category,
+one financing scenario and one profitability objective. Do not add scenarios,
+or the revenue total to its component rows. Australian payout benchmarks are
+observed amounts, not estimates of future Canadian shareholder payouts.
+
+The annual and pooled tax presentation exports use the same column names as the analytical CSVs. They include `reported_ebt` and `reported_tax_expense` so the reported accounting rate can be reconstructed directly. `adjusted_ebt_less_taxable_income` uses adjusted profit; `reported_ebt_less_taxable_income` remains available in the underlying data. Ratios use decimal proportions; amounts are nominal AUD. `expected_tax_less_cash_tax` uses `cash_tax_including_assumptions` (zero only under the Sydney scenario), not necessarily observed payments.
