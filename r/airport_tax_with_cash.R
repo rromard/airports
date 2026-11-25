@@ -246,17 +246,53 @@ reg_profit <- map2_dfr(reg_files, fyears, function(file, fyear) {
         stop("Cannot identify cash tax: ", airport, " ", fyear)
       }
 
-      values <- suppressWarnings(as.numeric(
-        x[hit[1, 1], (hit[1, 2] + 1):ncol(x)]
-      ))
-      if (all(is.na(values))) return(NA_real_)
-      values[which(!is.na(values))[1]]
+      row <- hit[1, 1]
+      col <- hit[1, 2] + 1L
+      # The cash-flow table has its own unit header; income statement
+      # revenue is not a reliable guide to the cash-flow units.
+      header <- x[seq.int(max(1L, row - 20L), row - 1L), col]
+      header <- str_to_lower(str_replace_all(as.character(header), "[^a-z0-9$]", ""))
+      unit <- header[!is.na(header) & str_detect(header, "^(aud)?[$]?(000s?|thousands?|1000s?)$|^(aud)?[$]$|^aud$|^dollars?$")]
+      if (!length(unit)) {
+        stop("Cash-flow unit header not recognized: ", airport, " ", fyear,
+             ". Check the cash-flow statement independently of the income statement.")
+      }
+      cash_multiplier <- if (str_detect(tail(unit, 1L), "000|thousand")) 1000 else 1
+      raw <- str_squish(as.character(x[row, col]))
+      value <- suppressWarnings(as.numeric(raw))
+      status <- "reported"
+      if (is.na(value)) {
+        # A blank contributes zero only if the operating cash-flow subtotal
+        # reconciles without it. Do not silently discard an unknown payment.
+        labels_col <- str_to_lower(str_squish(as.character(x[, col - 1L])))
+        starts <- which(labels_col == "cash flows from operating activities" &
+                          seq_len(nrow(x)) < row)
+        ends <- which(labels_col == "net cash flows from operating activities" &
+                        seq_len(nrow(x)) > row)
+        if (length(starts) && length(ends) &&
+            (is.na(raw) || raw %in% c("", "-", "–", "—"))) {
+          first <- max(starts)
+          last <- min(ends)
+          if (last > first + 1L) {
+            detail_rows <- setdiff(seq.int(first + 1L, last - 1L), row)
+            details <- suppressWarnings(as.numeric(x[detail_rows, col]))
+            total <- suppressWarnings(as.numeric(x[last, col]))
+            # At most one source reporting unit of rounding.
+            if (is.finite(total) && any(is.finite(details)) &&
+                abs(total - sum(details, na.rm = TRUE)) <= 1 + 1e-6) {
+              value <- 0
+              status <- "zero_reconciled_blank"
+            }
+          }
+        }
+        if (is.na(value)) status <- "missing"
+      }
+      list(value = value, multiplier = cash_multiplier, status = status)
     }
-    
-    # Existing unit heuristic retained pending verification of every source sheet.
-    # Export the applied factor and sheet name for review.
+
+    # Income statement unit heuristic is unchanged. Cash flows use their
+    # independently declared reporting units.
     multiplier <- if (get_value("^total revenue$") > 1e8) 1 else 1000
-    
     cash_tax <- get_cash_tax()
 
     tibble(
@@ -269,15 +305,24 @@ reg_profit <- map2_dfr(reg_files, fyears, function(file, fyear) {
       tax_expense =
         -get_value("^(tax charge|income tax benefit)$") * multiplier,
       # Source cash-flow outflows are negative; refunds are negative tax paid.
-      # Do not infer a zero cash payment from a blank disclosure.
-      cash_tax_paid = -cash_tax * multiplier,
-      reg_cash_tax_missing = is.na(cash_tax),
+      # Blank cells are zero only when the cash-flow subtotal reconciles.
+      cash_tax_paid = -cash_tax$value * cash_tax$multiplier,
+      reg_cash_tax_missing = is.na(cash_tax$value),
+      reg_cash_tax_status = cash_tax$status,
+      reg_cash_unit_multiplier = cash_tax$multiplier,
       reg_source_file = basename(file),
       reg_source_sheet = sheet,
       reg_unit_multiplier = multiplier
     )
   })
 })
+
+# Regression checks against the published Melbourne cash-flow statements.
+mel_cash_check <- reg_profit |> filter(airport == "MEL", fyear %in% c("2022-23", "2023-24", "2024-25")) |>
+  arrange(fyear)
+stopifnot(nrow(mel_cash_check) == 3L,
+          isTRUE(all.equal(mel_cash_check$cash_tax_paid, c(0, 13557000, 94013000))),
+          all(mel_cash_check$reg_cash_unit_multiplier == 1000))
 
 # Match the ATO reporting entities by ABN
 ato_four <- ato_tax |>
