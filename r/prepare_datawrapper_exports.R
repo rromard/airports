@@ -812,7 +812,7 @@ history_big4 <- history_airports |>
       parking_profit * 1e6 / parking_vehicles_implied, NA_real_),
     aero_ebita_roa = NA_real_, total_ebita_roa = NA_real_)
 history_divide <- function(n, d) {
-  if_else(is.finite(d) & d > 0, n / d, NA_real_)
+  n / replace(d, !is.finite(d) | d <= 0, NA_real_)
 }
 history_full <- bind_rows(history_airports, history_big4) |>
   mutate(
