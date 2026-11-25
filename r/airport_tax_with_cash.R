@@ -248,16 +248,20 @@ reg_profit <- map2_dfr(reg_files, fyears, function(file, fyear) {
 
       row <- hit[1, 1]
       col <- hit[1, 2] + 1L
-      # The cash-flow table has its own unit header; income statement
-      # revenue is not a reliable guide to the cash-flow units.
-      header <- x[seq.int(max(1L, row - 20L), row - 1L), col]
-      header <- str_to_lower(str_replace_all(as.character(header), "[^a-z0-9$]", ""))
-      unit <- header[!is.na(header) & str_detect(header, "^(aud)?[$]?(000s?|thousands?|1000s?)$|^(aud)?[$]$|^aud$|^dollars?$")]
-      if (!length(unit)) {
-        stop("Cash-flow unit header not recognized: ", airport, " ", fyear,
-             ". Check the cash-flow statement independently of the income statement.")
+      # Apply the same magnitude convention as the income statement,
+      # independently to gross operating receipts in the cash-flow table.
+      # Excel display formats and unit headers can conceal raw-value scaling.
+      labels_col <- str_to_lower(str_squish(as.character(x[, col - 1L])))
+      receipts_rows <- which(str_detect(labels_col,
+        "^receipts from customers$") & seq_len(nrow(x)) < row)
+      if (!length(receipts_rows)) {
+        stop("Cannot identify cash-flow receipts: ", airport, " ", fyear)
       }
-      cash_multiplier <- if (str_detect(tail(unit, 1L), "000|thousand")) 1000 else 1
+      receipts <- suppressWarnings(as.numeric(x[max(receipts_rows), col]))
+      if (!is.finite(receipts) || receipts <= 0) {
+        stop("Invalid cash-flow receipts: ", airport, " ", fyear)
+      }
+      cash_multiplier <- if (receipts > 1e8) 1 else 1000
       raw <- str_squish(as.character(x[row, col]))
       value <- suppressWarnings(as.numeric(raw))
       status <- "reported"
@@ -291,7 +295,7 @@ reg_profit <- map2_dfr(reg_files, fyears, function(file, fyear) {
     }
 
     # Income statement unit heuristic is unchanged. Cash flows use their
-    # independently declared reporting units.
+    # independently inferred raw-value scale.
     multiplier <- if (get_value("^total revenue$") > 1e8) 1 else 1000
     cash_tax <- get_cash_tax()
 
@@ -365,6 +369,10 @@ positive_ratio <- function(numerator, denominator) {
   if_else(!is.na(denominator) & denominator > 0,
           numerator / denominator, NA_real_)
 }
+
+# Zero payments and net refunds remain valid with positive EBT.
+stopifnot(isTRUE(all.equal(positive_ratio(c(0, -10, 10), c(100, 100, 100)),
+                           c(0, -0.1, 0.1))))
 
 assert_unique_tax_keys <- function(x, label) {
   if (anyNA(x$airport) || anyNA(x$fyear) ||
