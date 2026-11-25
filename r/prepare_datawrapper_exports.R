@@ -252,11 +252,15 @@ if (is.null(tax_rates)) {
     "airport_tax_with_cash.R -> output/taxation/aus_airport_tax_rates.csv",
     "Run the existing airport_tax_with_cash.R analysis, then rerun presentation exports. ACCC cash-flow tax paid, ATO tax payable, and accounting tax expense are distinct concepts.")
 } else {
-  tax_chart_cols <- c("airport", "year_end", "analysis_ebt",
-    "ato_taxable_income", "book_to_tax_difference", "statutory_rate",
-    "analysis_accounting_etr", "ato_payable_rate", "cash_etr",
-    "expected_tax_on_accounting_profit", "ato_tax_payable", "analysis_cash_tax_paid",
-    "payable_tax_gap", "tax_gap", "cash_tax_assumed")
+  tax_chart_cols <- c("airport", "year_end",
+    "reported_ebt", "adjusted_ebt", "ato_taxable_income",
+    "adjusted_ebt_less_taxable_income",
+    "reported_tax_expense", "expected_tax_on_adjusted_ebt",
+    "ato_tax_payable", "reported_cash_tax_paid",
+    "statutory_tax_rate", "tax_expense_to_reported_ebt",
+    "tax_payable_to_taxable_income", "cash_tax_to_adjusted_ebt",
+    "expected_tax_less_tax_payable", "expected_tax_less_cash_tax",
+    "zero_cash_tax_assumed")
   require_columns(tax_rates, c("fyear", tax_chart_cols), "Australian airport tax rates")
   check_keys(tax_rates, c("airport", "fyear"), "Australian airport tax rates")
   export(tax_rates |>
@@ -270,11 +274,15 @@ if (is.null(tax_rates)) {
 tax_periods <- input_csv(file.path(tax_dir, "aus_airport_tax_periods.csv"),
                           required = FALSE)
 if (!is.null(tax_periods)) {
-  period_chart_cols <- c("airport", "period", "analysis_ebt",
-    "ato_taxable_income", "book_to_tax_difference", "statutory_rate",
-    "analysis_accounting_etr", "ato_payable_rate", "cash_etr",
-    "expected_tax_on_accounting_profit", "ato_tax_payable", "analysis_cash_tax_paid",
-    "payable_tax_gap", "tax_gap", "n_cash_assumed")
+  period_chart_cols <- c("airport", "period",
+    "reported_ebt", "adjusted_ebt", "ato_taxable_income",
+    "adjusted_ebt_less_taxable_income",
+    "reported_tax_expense", "expected_tax_on_adjusted_ebt",
+    "ato_tax_payable", "reported_cash_tax_paid",
+    "statutory_tax_rate", "tax_expense_to_reported_ebt",
+    "tax_payable_to_taxable_income", "cash_tax_to_adjusted_ebt",
+    "expected_tax_less_tax_payable", "expected_tax_less_cash_tax",
+    "years_zero_cash_tax_assumed")
   require_columns(tax_periods, period_chart_cols, "Australian airport tax periods")
   check_keys(tax_periods, c("airport", "period"), "Australian airport tax periods")
   export(tax_periods |> select(all_of(period_chart_cols)),
