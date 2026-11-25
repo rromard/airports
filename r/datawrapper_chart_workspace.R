@@ -157,12 +157,11 @@ dw_notes <- function(dataset) {
 # Prefer cumulative periods to reduce annual timing effects.
 # tax_gap_chart <- dw$australia_tax_periods |>
 #   select(airport, period, analysis_ebt, expected_tax_on_accounting_profit,
-#          analysis_cash_tax_paid, cash_tax_for_gap,
-#          tax_gap, tax_gap_method)
+#          analysis_cash_tax_paid, tax_gap, n_cash_assumed)
 # write_chart(tax_gap_chart, "australian_tax_gap")
 #
 # Sydney is an illustrative adjusted gap, not observed parent-level tax.
-# Do not chart cash_tax_for_gap as actual Sydney corporate cash tax.
+# Sydney observed cash tax stays missing; n_cash_assumed identifies scenario years.
 #
 # EXAMPLE: financial comparison
 #
