@@ -878,6 +878,93 @@ if (file.exists(quality_path)) {
     "Australia quality and revenue",
     "ACCC supplementary database airport_quality extract",
     "Raw measure-specific quality series. Do NOT pool airline and passenger ratings, terminals or categories without a defensible common indicator.")
+  # Balanced survey panel: hold the composition of each airport's survey
+  # indicators constant over time. A series is identified by airport,
+  # survey source, terminal, category and exact ACCC measure label.
+  # Missing terminal/category labels are legitimate (e.g. airport-wide
+  # airline questions); encode as empty strings for grouping, not as
+  # invented terminal or category names. Do not match renamed questions
+  # or changed terminal definitions by fuzzy similarity.
+  #
+  # Require a finite rating in EVERY non-pandemic financial year from
+  # 2007-08 through 2024-25. FY2019-20 through FY2021-22 are excluded from
+  # the completeness test because COVID disrupted surveys and operations.
+  # Retain any actual pandemic-year observations in the indicator export,
+  # but omit these years from the summary used for historical trend charts.
+  # No interpolation, imputation or zero-filling of missing ratings.
+  quality_years <- setdiff(2008:2025, 2020:2022)
+  quality_series_keys <- c("airport", "source", "terminal", "category", "measure")
+  quality_surveys <- quality |>
+    filter(airport %in% aus_airports,
+      source %in% c("passenger_survey", "airline_survey")) |>
+    mutate(financial_year = as.character(year),
+      year = history_year_end(year),
+      terminal = coalesce(as.character(terminal), ""),
+      category = coalesce(as.character(category), "")) |>
+    filter(year %in% 2008:2025, is.finite(value))
+  # A terminal/category/question must identify one observation per year.
+  # Stop if the source contains duplicate observations instead of implicitly
+  # weighting that indicator more heavily or silently dropping a row.
+  if (anyDuplicated(quality_surveys[c(quality_series_keys, "year")]) ||
+      anyNA(quality_surveys[c(quality_series_keys, "year")]))
+    stop("Duplicate or incomplete ACCC survey series keys.")
+  quality_coverage <- quality_surveys |>
+    group_by(across(all_of(quality_series_keys))) |>
+    summarise(
+      nonpandemic_years_available = n_distinct(year[year %in% quality_years]),
+      first_year = min(year), last_year = max(year),
+      balanced_panel = all(quality_years %in% year),
+      .groups = "drop")
+  quality_indicators <- quality_surveys |>
+    left_join(quality_coverage, by = quality_series_keys) |>
+    mutate(in_trend_period = year %in% quality_years) |>
+    arrange(airport, source, terminal, category, measure, year)
+  export(quality_indicators, "10b_australia_quality_survey_indicators.csv",
+    "Australian quality survey indicator coverage",
+    "ACCC airport_quality extract, survey observations only",
+    "Original numeric survey ratings with terminal/category/measure keys and balanced-panel eligibility. Completeness requires all 15 non-pandemic FYs ending 2008-2025 (excluding 2020-2022). Pandemic observations retained and flagged. Objective indicators excluded. No imputation.")
+  export(quality_coverage, "10c_australia_quality_panel_coverage.csv",
+    "Australian quality survey balanced-panel audit",
+    "ACCC airport_quality survey indicator series",
+    "One row per airport/source/terminal/category/measure. balanced_panel identifies questions with ratings in every required non-pandemic year; first/last years include available pandemic observations. Different airports can have different balanced indicator baskets.")
+
+  # Compute two airport-level summaries, separately for passenger and airline
+  # surveys: (1) all available questions each year, which can change in
+  # composition; (2) balanced questions only, with a fixed indicator basket.
+  # Equal weight per terminal/category/measure observation, not per terminal,
+  # category, passenger or respondent: survey sample sizes are unavailable.
+  # A terminal with more questions therefore contributes more observations.
+  # These are descriptive analyst composites, NOT the ACCC official overall
+  # quality rating. Compare each airport's trend rather than treating different
+  # airport baskets as directly comparable measures of absolute quality.
+  # No BIG4 average: quality is experienced at individual airports.
+  quality_summary <- function(d, method) {
+    d |>
+      filter(in_trend_period) |>
+      group_by(airport, source, year, financial_year) |>
+      summarise(mean_rating = mean(value),
+        n_indicators = n(), .groups = "drop") |>
+      mutate(panel = method)
+  }
+  quality_balanced <- quality_summary(
+    filter(quality_indicators, balanced_panel), "balanced")
+  quality_all <- quality_summary(quality_indicators, "all_available")
+  quality_counts <- quality_balanced |>
+    group_by(airport, source) |>
+    summarise(n_years = n_distinct(year),
+      n_indicator_counts = n_distinct(n_indicators), .groups = "drop")
+  if (nrow(quality_counts) != 8L ||
+      any(quality_counts$n_years != length(quality_years)) ||
+      any(quality_counts$n_indicator_counts != 1L))
+    stop("ACCC balanced survey panel has inconsistent coverage.")
+  quality_trends <- bind_rows(quality_balanced, quality_all) |>
+    arrange(airport, source, panel, year)
+  check_keys(quality_trends, c("airport", "source", "panel", "year"),
+    "ACCC quality survey trends")
+  export(quality_trends, "10d_australia_quality_survey_trends.csv",
+    "Australian airport survey quality trends",
+    "ACCC survey indicators and balanced-panel coverage",
+    "Airport-specific equal-indicator-weight mean ratings, separate passenger and airline surveys. Balanced panel uses fixed within-airport question/terminal/category basket across 15 non-pandemic years; all_available uses available questions each year and may have changing composition. Neither is official ACCC overall quality or respondent-weighted. No cross-airport average or causal inference.")
 } else {
   pending("Australia quality and revenue",
     "ACCC supplementary database airport_quality extract",
