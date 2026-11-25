@@ -225,15 +225,37 @@ financial <- annual_abs |>
   select(country, airport, year, reporting_basis, metric,
     metric_label, value, unit)
 # Supplementary parking yield: GTAA 2024 Annual Report, p. 45,
-# defines enplanements for credit metrics as half of total passengers.
-# Keep the common total-passenger denominator in all core comparisons.
-parking_yield <- annual_pp |>
+# estimates enplanements for credit metrics as half of total passengers.
+# Keep total-passenger rates for additive comparisons and use estimated
+# enplanements only for standalone parking/ground transportation yields.
+parking_enplanement_share <- 0.5
+require_columns(annual_pp, "parking_transport_revenue", "annual per-passenger")
+require_columns(annual_abs, "parking_transport_revenue", "annual absolute")
+parking_annual <- annual_abs |>
+  select(all_of(annual_keys),
+    parking_transport_revenue_m = parking_transport_revenue) |>
+  left_join(annual_pp |>
+    select(all_of(annual_keys),
+      parking_transport_revenue_per_pax = parking_transport_revenue),
+    by = annual_keys) |>
+  mutate(
+    reporting_basis = if_else(country == "Australia",
+      sprintf("FY %d-%02d", year - 1L, year %% 100L),
+      paste("CY", year)),
+    parking_transport_revenue_per_est_enplaned_pax =
+      parking_transport_revenue_per_pax / parking_enplanement_share)
+check_keys(parking_annual, annual_keys, "annual parking yield")
+export(parking_annual, "03b_parking_yield_2023_2025.csv",
+  "Current Canadian–Australian airport parking and ground transportation",
+  "Comparison annual absolute and per-passenger CSVs",
+  "2025 CAD millions and CAD per total or estimated enplaned passenger. Enplanements estimated as 50% of total passengers; this is a revenue yield, not a price paid by parking customers. Do not add enplanement-based yields to total-passenger revenue components. Australia June-ending FY; Canada CY.")
+
+parking_yield <- parking_annual |>
   filter(year == 2025L) |>
-  transmute(country, airport, year,
-    reporting_basis = if_else(country == "Australia", "FY 2024-25", "CY 2025"),
+  transmute(country, airport, year, reporting_basis,
     metric = "parking_transport_revenue_per_enplaned",
     metric_label = "Parking and ground transportation revenue per estimated enplaned passenger",
-    value = 2 * parking_transport_revenue,
+    value = parking_transport_revenue_per_est_enplaned_pax,
     unit = "2025 CAD per estimated enplaned passenger")
 financial <- bind_rows(financial, parking_yield)
 export(financial, "03_current_financials_2025.csv",
@@ -361,12 +383,26 @@ impacts <- input_csv(file.path(base_bridge, "revenue_impacts_2025_long.csv"))
 require_columns(impacts, c("airport", "period", "financing",
   "profitability_objective", "allocation_method", "revenue_category",
   "observed_category_m", "additional_category_m",
-  "counterfactual_category_m", "increase_pct"), "revenue impacts")
+  "counterfactual_category_m", "increase_pct", "observed_per_pax",
+  "additional_per_pax", "counterfactual_per_pax"), "revenue impacts")
 if (nrow(impacts) != 1080L) stop("Expected 1080 revenue-impact category records.")
+# Retain all original total-passenger rates. The alternative denominator
+# is deliberately available only for the parking/ground transport category.
+is_parking <- impacts$revenue_category == "parking_transport_revenue"
+if (anyNA(is_parking) || sum(is_parking) != 270L)
+  stop("Expected 270 parking revenue-impact records.")
+impacts <- impacts |>
+  mutate(
+    observed_per_est_enplaned_pax = if_else(is_parking,
+      observed_per_pax / parking_enplanement_share, NA_real_),
+    additional_per_est_enplaned_pax = if_else(is_parking,
+      additional_per_pax / parking_enplanement_share, NA_real_),
+    counterfactual_per_est_enplaned_pax = if_else(is_parking,
+      counterfactual_per_pax / parking_enplanement_share, NA_real_))
 export(impacts, "08_revenue_impacts_2025.csv",
   "Final profitability thresholds and revenue allocation",
   "Revenue impacts 2025 long CSV",
-  "2025; category uplift is NOT a fee/passenger-incidence forecast. Total and three components must not be added together.")
+  "2025; original per_pax fields use total passengers. Additional per_est_enplaned_pax fields apply only to parking and ground transportation, using 50% of total passengers as estimated enplanements, in 2025 CAD. Do not stack these fields with total-passenger rates. Category uplift is NOT a fee/passenger-incidence forecast. Total and three components must not be added together.")
 
 # 8. DIRECTLY OBSERVED REAL AUSTRALIAN HISTORICAL REVENUE PATH.
 # The counterfactual script already deflates the ACCC historical nominal
