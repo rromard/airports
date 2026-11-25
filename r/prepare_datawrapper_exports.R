@@ -711,6 +711,156 @@ if (is.null(legacy)) {
     "ILLUSTRATIVE paths mapped to Canadian years; check observed vs extrapolated flags. Not observed Australian financial data.")
 }
 
+# 9b. OBSERVED ACCC FINANCIAL HISTORY: FY 2007-08 to FY 2024-25.
+# Supplementary database operating profit (after D&A), NOT EBITDA or net
+# income. Keep real 2024-25 AUD, without further CPI adjustment.
+history_fin_path <- here::here("output",
+  "accc_airport_financial_analysis_2007_2025.xlsx")
+history_rds_path <- here::here("data", "australia",
+  "accc_monitor_data_2005_2025.rds")
+history_pass_path <- here::here("data", "australia",
+  "accc_airport_passengers_2007_2025.csv")
+history_keys <- c("airport", "year")
+history_year_end <- function(x) {
+  2000L + as.integer(substr(as.character(x), nchar(as.character(x)) - 1L,
+    nchar(as.character(x))))
+}
+history_filter <- function(d) {
+  d |>
+    mutate(year = history_year_end(year)) |>
+    filter(airport %in% aus_airports, year %in% 2008:2025)
+}
+history_amounts <- c("total_revenue", "total_expenses", "total_profit",
+  "aero_revenue", "aero_expenses", "aero_profit",
+  "parking_revenue", "parking_expenses", "parking_profit",
+  "landside_revenue", "parking_transport_revenue", "other_revenue",
+  "other_expenses", "other_profit")
+history_fin <- readxl::read_excel(history_fin_path, sheet = "financial") |>
+  history_filter()
+require_columns(history_fin, c(history_keys, history_amounts),
+  "historical ACCC financial workbook; rerun parse_accc_airports.R if outdated")
+history_fin <- history_fin |> select(all_of(history_keys), all_of(history_amounts))
+history_pass <- input_csv(history_pass_path) |> history_filter() |>
+  select(all_of(history_keys), passengers)
+history_parsed <- readRDS(history_rds_path)
+history_parking <- history_parsed$carpark_financial
+require_columns(history_parking, c("airport", "year", "section", "measure",
+  "value"), "historical ACCC parking source")
+history_parking <- history_parking |> history_filter() |>
+  filter(section == "car_parking")
+# Financial table throughput is in thousands, with fixed precinct rows in
+# the 2024-25 source workbook. Missing precinct values are not zero-filled.
+throughput <- history_parking |>
+  filter(grepl("^Annual throughput of ", measure)) |>
+  mutate(expected_precincts = case_when(airport == "BNE" ~ 4L,
+    airport == "MEL" ~ 2L, airport == "PER" ~ 4L, airport == "SYD" ~ 3L))
+check_keys(throughput, c(history_keys, "measure"), "parking throughput components")
+throughput <- throughput |>
+  group_by(airport, year) |>
+  summarise(parking_vehicles_reported = if (n() == first(expected_precincts) &&
+    all(is.finite(value) & value >= 0)) 1000 * sum(value) else NA_real_,
+    .groups = "drop")
+vehicle_lookup <- c("Revenue per vehicle ($)" = "parking_revenue_per_vehicle",
+  "Operating expenses per vehicle ($)" = "parking_expenses_per_vehicle",
+  "Operating profit per vehicle ($)" = "parking_profit_per_vehicle",
+  "Operating margin per vehicle ($)" = "parking_profit_per_vehicle")
+vehicle_rates <- history_parking |>
+  filter(measure %in% names(vehicle_lookup)) |>
+  transmute(airport, year, metric = unname(vehicle_lookup[measure]), value)
+check_keys(vehicle_rates, c(history_keys, "metric"), "ACCC parking vehicle yields")
+vehicle_rates <- vehicle_rates |>
+  pivot_wider(names_from = metric, values_from = value)
+history_roa <- readxl::read_excel(history_fin_path, sheet = "margins") |>
+  history_filter() |>
+  select(all_of(history_keys), aero_ebita_roa, total_ebita_roa)
+for (d in list(history_fin, history_pass, throughput, vehicle_rates, history_roa))
+  check_keys(d, history_keys, "historical ACCC source")
+history_airports <- history_fin |>
+  left_join(history_pass, by = history_keys) |>
+  left_join(throughput, by = history_keys) |>
+  left_join(vehicle_rates, by = history_keys) |>
+  left_join(history_roa, by = history_keys) |>
+  mutate(
+    # ACCC published per-vehicle yields and reported throughput are separate
+    # observations; PER in particular does not always reconcile. Recover
+    # the denominator implicit in the published revenue yield for pooling.
+    parking_vehicles_implied = if_else(parking_revenue_per_vehicle > 0,
+      parking_revenue * 1e6 / parking_revenue_per_vehicle, NA_real_),
+    commercial_revenue = total_revenue - aero_revenue,
+    # Match residual expenses/profit with revenue INCLUDING landside.
+    other_incl_landside_revenue = total_revenue - aero_revenue - parking_revenue)
+if (nrow(history_airports) != 72L ||
+    any(table(history_airports$airport) != 18L) ||
+    any(!is.finite(history_airports$passengers) | history_airports$passengers <= 0))
+  stop("Expected 72 ACCC airport-years with valid passenger counts.")
+history_amounts <- c(history_amounts, "commercial_revenue",
+  "other_incl_landside_revenue")
+# Use ratios of sums, with complete coverage. For aggregate published-yield
+# equivalents, use the implicit revenue-yield denominator; keep the reported
+# throughput-based calculation separately labelled.
+history_big4 <- history_airports |>
+  group_by(year) |>
+  summarise(across(all_of(c(history_amounts, "passengers",
+    "parking_vehicles_reported", "parking_vehicles_implied")), complete_sum),
+    .groups = "drop") |>
+  mutate(airport = "BIG4",
+    parking_revenue_per_vehicle = if_else(parking_vehicles_implied > 0,
+      parking_revenue * 1e6 / parking_vehicles_implied, NA_real_),
+    parking_expenses_per_vehicle = if_else(parking_vehicles_implied > 0,
+      parking_expenses * 1e6 / parking_vehicles_implied, NA_real_),
+    parking_profit_per_vehicle = if_else(parking_vehicles_implied > 0,
+      parking_profit * 1e6 / parking_vehicles_implied, NA_real_),
+    aero_ebita_roa = NA_real_, total_ebita_roa = NA_real_)
+history_divide <- function(n, d) {
+  if_else(is.finite(d) & d > 0, n / d, NA_real_)
+}
+history_full <- bind_rows(history_airports, history_big4) |>
+  mutate(
+    financial_year = sprintf("%d-%02d", year - 1L, year %% 100L),
+    across(all_of(history_amounts),
+      ~ history_divide(.x * 1e6, passengers), .names = "{.col}_per_passenger"),
+    parking_revenue_per_est_enplaned_pax =
+      parking_revenue_per_passenger / parking_enplanement_share,
+    parking_transport_revenue_per_est_enplaned_pax =
+      parking_transport_revenue_per_passenger / parking_enplanement_share,
+    parking_revenue_per_reported_vehicle =
+      history_divide(parking_revenue * 1e6, parking_vehicles_reported),
+    parking_expenses_per_reported_vehicle =
+      history_divide(parking_expenses * 1e6, parking_vehicles_reported),
+    parking_profit_per_reported_vehicle =
+      history_divide(parking_profit * 1e6, parking_vehicles_reported),
+    total_op_margin = history_divide(100 * total_profit, total_revenue),
+    aero_op_margin = history_divide(100 * aero_profit, aero_revenue),
+    parking_op_margin = history_divide(100 * parking_profit, parking_revenue),
+    other_incl_landside_op_margin =
+      history_divide(100 * other_profit, other_incl_landside_revenue)) |>
+  # Rename unmatched residual components to make their scope explicit.
+  rename(other_excl_landside_revenue = other_revenue,
+    other_excl_landside_revenue_per_passenger = other_revenue_per_passenger,
+    other_incl_landside_expenses = other_expenses,
+    other_incl_landside_profit = other_profit,
+    other_incl_landside_expenses_per_passenger = other_expenses_per_passenger,
+    other_incl_landside_profit_per_passenger = other_profit_per_passenger) |>
+  group_by(airport) |>
+  mutate(across(c(ends_with("_per_passenger"), ends_with("_per_vehicle"),
+    ends_with("_per_reported_vehicle"), ends_with("_per_est_enplaned_pax"),
+    all_of(setdiff(history_amounts, c("other_revenue", "other_expenses",
+      "other_profit"))), other_excl_landside_revenue,
+    other_incl_landside_expenses, other_incl_landside_profit),
+    ~ history_divide(100 * .x, .x[year == 2008L][1]),
+    .names = "{.col}_index_2008")) |>
+  ungroup() |>
+  relocate(airport, year, financial_year, passengers,
+    parking_vehicles_reported, parking_vehicles_implied) |>
+  arrange(airport, year)
+check_keys(history_full, history_keys, "historical ACCC financial panel")
+if (nrow(history_full) != 90L)
+  stop("Expected 90 ACCC historical airport and BIG4 observations.")
+export(history_full, "09b_australia_financial_history_2008_2025.csv",
+  "Historical Australian airport financials and parking",
+  "ACCC supplementary financial workbook, passenger CSV and parsed carpark_financial RDS",
+  "FY2007-08 to FY2024-25; real 2024-25 AUD millions for monetary levels, AUD for yields, persons/vehicles for counts; percent for margins and EBITA returns; indices FY2007-08=100 (missing if baseline unavailable or nonpositive). Operating profit is ACCC operating profit after D&A, not EBITDA or net income. Parking per estimated enplaned passenger uses half of total passengers. Airport per_vehicle rates are published ACCC rates; BIG4 per_vehicle rates use implied vehicle counts from published revenue yields. Separate per_reported_vehicle rates use reported financial-table throughput summed across precincts; Perth throughput and published yields do not always reconcile. Implied vehicle counts are diagnostic estimates, not observed counts. BIG4 rates and margins are ratios of sums; no aggregate EBITA ROA without matching asset denominators. Other excl landside revenue differs in scope from other incl landside expenses/profit; the residual margin uses other incl landside revenue. Categories overlap; not all columns are additive. No extrapolation or additional CPI adjustment.")
+
 # 9. OPTIONAL QUALITY: preserve exact ACCC survey series and classification.
 quality_path <- here::here("data", "australia",
   "accc_monitor_data_2005_2025.rds")
