@@ -61,6 +61,7 @@ ato_tax <- tibble(file = files, year = as.integer(str_extract(basename(files), "
             total_income,
             taxable_income,
             tax_payable) |> 
+  filter(str_detect(str_remove_all(abn, "\\s"), "^\\d{11}$")) |>
   mutate(
     across(total_income:tax_payable, parse_number),
     # ATO suppresses amounts of zero or less. Keep flags for source blanks;
@@ -257,7 +258,19 @@ reg_profit <- map2_dfr(reg_files, fyears, function(file, fyear) {
       if (!length(receipts_rows)) {
         stop("Cannot identify cash-flow receipts: ", airport, " ", fyear)
       }
-      receipts <- suppressWarnings(as.numeric(x[max(receipts_rows), col]))
+      # Identify the first numeric column following the receipts label.
+      receipts_values <- suppressWarnings(as.numeric(
+        x[max(receipts_rows), col:ncol(x)]
+      ))
+      
+      numeric_cols <- which(!is.na(receipts_values))
+      
+      if (!length(numeric_cols)) {
+        stop("Missing cash-flow receipts: ", airport, " ", fyear)
+      }
+      
+      col <- col + numeric_cols[1] - 1L
+      receipts <- receipts_values[numeric_cols[1]]
       if (!is.finite(receipts) || receipts <= 0) {
         stop("Invalid cash-flow receipts: ", airport, " ", fyear)
       }
