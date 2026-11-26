@@ -2,7 +2,8 @@
 # Run after the production pipeline:
 #   source(here::here("r", "prepare_datawrapper_exports.R"))
 # Does NOT rebuild model inputs or alter acquisition assumptions.
-# Exports are tidy CSVs; all currency comparisons already use 2025 CAD.
+# Exports are tidy CSVs; monetary comparisons use real 2025 CAD.
+# Original nominal tax amounts and historical source yields are retained for audit.
 suppressPackageStartupMessages({
   library(dplyr)
   library(tidyr)
@@ -365,6 +366,18 @@ require_columns(financial_basis, c(annual_keys, "passengers",
   "adjustment_to_2025", "fx_cad_per_unit", "ebitda_ebit_revenue_basis",
   "net_income_revenue_basis"), "financial comparison audit")
 check_keys(financial_basis, annual_keys, "financial comparison audit")
+# Reuse the exact fixed FX and fiscal-year CPI conventions of production.
+cad_per_aud_2025 <- unique(financial_basis$fx_cad_per_unit[financial_basis$country == "Australia"])
+if (length(cad_per_aud_2025) != 1L || !is.finite(cad_per_aud_2025) ||
+    cad_per_aud_2025 <= 0)
+  stop("Expected one positive fixed Australian exchange rate in financial audit.")
+presentation_aus_cpi <- comparison_audit$aus_cpi |>
+  select(year, adjustment_to_2025)
+check_keys(presentation_aus_cpi, "year", "presentation Australian CPI")
+if (!setequal(presentation_aus_cpi$year, 2015:2025) ||
+    any(!is.finite(presentation_aus_cpi$adjustment_to_2025) |
+        presentation_aus_cpi$adjustment_to_2025 <= 0))
+  stop("Invalid Australian CPI factors in production audit.")
 basis_annual <- financial_basis |>
   transmute(country, airport, year, passengers_m = passengers / 1e6,
     operating_revenue_basis_m = ebitda_ebit_revenue_basis *
@@ -737,10 +750,16 @@ if (is.null(history_real)) {
   if (nrow(history_real) != 50L ||
       any(!is.finite(history_real$index_1998)))
     stop("Expected 40 airport-year and 10 pooled historical index rows.")
+  require_columns(history_real, c("nominal_aud_pp", "real_aud_pp_2025"),
+    "Historical dollar yields; rerun r/airport_revenue_counterfactual.R with updated code")
+  if (any(!is.finite(history_real$real_aud_pp_2025) | history_real$real_aud_pp_2025 <= 0))
+    stop("Missing constant-dollar historical yield; rerun the updated historical script.")
+  history_real <- history_real |>
+    mutate(real_cad_pp_2025 = real_aud_pp_2025 * cad_per_aud_2025)
   export(history_real, "09_australia_observed_real_yield_1998_2007.csv",
     "Australia observed 1998–2007 real path",
     "airport_revenue_counterfactual.R: CPI-deflated ACCC Figure 2.2 and FAC Sydney 1998",
-    "Real aeronautical yield index 1998=100; BIG4 is an unweighted mean of four airport indexes. Real yield levels are nominal AUD divided by FY CPI, not dollar-valued 2025 CAD. Sydney 1998 FAC source differs in scope from other ACCC figures.")
+    "Real aeronautical yield index 1998=100; BIG4 index is an unweighted mean of four airport indexes. BIG4 dollar yields are separate unweighted means of four airport yields. real_yield retains the original CPI-normalized value; real_aud_pp_2025 uses the FY2025 CPI from the same historical CPI vintage; real_cad_pp_2025 applies the production fixed 2025 CAD/AUD exchange rate. Sydney 1998 FAC source differs in scope from other ACCC figures.")
 }
 
 # 9. OPTIONAL HISTORY: historical cap-then-shock and immediate shock paths.
@@ -762,7 +781,8 @@ if (is.null(legacy)) {
 
 # 9b. OBSERVED ACCC FINANCIAL HISTORY: FY 2007-08 to FY 2024-25.
 # Supplementary database operating profit (after D&A), NOT EBITDA or net
-# income. Keep real 2024-25 AUD, without further CPI adjustment.
+# income. Source real 2024-25 AUD; convert once to 2025 CAD after calculating
+# all ratios, implied vehicle counts and indices. No further CPI adjustment.
 history_fin_path <- here::here("output",
   "accc_airport_financial_analysis_2007_2025.xlsx")
 history_rds_path <- here::here("data", "australia",
@@ -905,10 +925,19 @@ history_full <- bind_rows(history_airports, history_big4) |>
 check_keys(history_full, history_keys, "historical ACCC financial panel")
 if (nrow(history_full) != 90L)
   stop("Expected 90 ACCC historical airport and BIG4 observations.")
+# Convert only monetary levels and yields, not counts, margins, ROA or indices.
+history_money_cols <- c(setdiff(history_amounts, c("other_revenue", "other_expenses",
+  "other_profit")), "other_excl_landside_revenue", "other_incl_landside_expenses",
+  "other_incl_landside_profit")
+history_full <- history_full |>
+  mutate(across(c(all_of(history_money_cols), ends_with("_per_passenger"),
+    ends_with("_per_vehicle"), ends_with("_per_reported_vehicle"),
+    ends_with("_per_est_enplaned_pax")), ~ .x * cad_per_aud_2025),
+    currency = "CAD", price_base = "2025")
 export(history_full, "09b_australia_financial_history_2008_2025.csv",
   "Historical Australian airport financials and parking",
   "ACCC supplementary financial workbook, passenger CSV and parsed carpark_financial RDS",
-  "FY2007-08 to FY2024-25; real 2024-25 AUD millions for monetary levels, AUD for yields, persons/vehicles for counts; percent for margins and EBITA returns; indices FY2007-08=100 (missing if baseline unavailable or nonpositive). Operating profit is ACCC operating profit after D&A, not EBITDA or net income. Parking per estimated enplaned passenger uses half of total passengers. Airport per_vehicle rates are published ACCC rates; BIG4 per_vehicle rates use implied vehicle counts from published revenue yields. Separate per_reported_vehicle rates use reported financial-table throughput summed across precincts; Perth throughput and published yields do not always reconcile. Implied vehicle counts are diagnostic estimates, not observed counts. BIG4 rates and margins are ratios of sums; no aggregate EBITA ROA without matching asset denominators. Other excl landside revenue differs in scope from other incl landside expenses/profit; the residual margin uses other incl landside revenue. Categories overlap; not all columns are additive. No extrapolation or additional CPI adjustment.")
+  "FY2007-08 to FY2024-25; real 2025 CAD millions for monetary levels, CAD for yields (ACCC real FY2024-25 AUD multiplied by production fixed 2025 CAD/AUD rate), persons/vehicles for counts; percent for margins and EBITA returns; indices FY2007-08=100 (missing if baseline unavailable or nonpositive). Operating profit is ACCC operating profit after D&A, not EBITDA or net income. Parking per estimated enplaned passenger uses half of total passengers. Airport per_vehicle rates are published ACCC rates; BIG4 per_vehicle rates use implied vehicle counts from published revenue yields. Separate per_reported_vehicle rates use reported financial-table throughput summed across precincts; Perth throughput and published yields do not always reconcile. Implied vehicle counts are diagnostic estimates, not observed counts. BIG4 rates and margins are ratios of sums; no aggregate EBITA ROA without matching asset denominators. Other excl landside revenue differs in scope from other incl landside expenses/profit; the residual margin uses other incl landside revenue. Categories overlap; not all columns are additive. No extrapolation or additional CPI adjustment.")
 
 # 9. OPTIONAL QUALITY: preserve exact ACCC survey series and classification.
 quality_path <- here::here("data", "australia",
