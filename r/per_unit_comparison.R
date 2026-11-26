@@ -253,6 +253,10 @@ can_lookup <- c(
   'Write-down or impairement of property and equipment' = 'asset_impairment',
   'Interest and financing costs net of interest income' = 'net_financing_costs',
   'Post-employment pension benefits remeasurement loss' = 'pension_remeasurement',
+  'Loss on disposal of capital assets' = 'asset_disposal_loss',
+  'Contributions' = 'contributions',
+  'Partnership income' = 'partnership_income',
+  'Insurance recoveries' = 'insurance_recoveries',
   'Total Expenses' = 'total_expenses_can',
   'EBITDA' = 'ebitda_can',
   'Net Income' = 'net_income_can',
@@ -641,13 +645,31 @@ scach_join <- scach_reconciliation |>
 can_fin_vars <- c('total_revenue', 'ebitda_can',
                   'depreciation_amortisation', 'asset_impairment',
                   'net_financing_costs', 'net_income_can',
-                  'profit_before_tax_can', 'income_tax_expense_can')
+                  'profit_before_tax_can', 'income_tax_expense_can',
+                  'pension_remeasurement', 'asset_disposal_loss',
+                  'contributions', 'partnership_income', 'insurance_recoveries',
+                  'operating_expenses_can')
 can_fin_raw <- can_long |>
   filter(year %in% recent_years, variable %in% can_fin_vars) |>
   select(airport, year, variable, value_m) |>
   pivot_wider(names_from = variable, values_from = value_m)
 for (nm in can_fin_vars) {
   if (!nm %in% names(can_fin_raw)) can_fin_raw[[nm]] <- NA_real_
+}
+# The repaired source worksheet explicitly records all five adjustment
+# lines for every airport-year (including zeroes). Do not impute missing rows.
+can_adjustment_vars <- c('pension_remeasurement', 'asset_disposal_loss',
+                         'contributions', 'partnership_income', 'insurance_recoveries')
+if (nrow(can_fin_raw) != 4L * length(recent_years) ||
+    any(!is.finite(as.matrix(can_fin_raw[can_adjustment_vars])))) {
+  stop('Incomplete Canadian non-operating adjustments; use the repaired source workbook.')
+}
+can_fin_check <- can_fin_raw |>
+  mutate(ebitda_residual = total_revenue - operating_expenses_can - ebitda_can)
+if (any(!is.finite(can_fin_check$ebitda_residual) |
+        abs(can_fin_check$ebitda_residual) > 0.05)) {
+  print(can_fin_check |> select(airport, year, ebitda_residual))
+  stop('Canadian EBITDA does not reconcile to revenue less operating expenses.')
 }
 can_fin <- tidyr::expand_grid(airport = ports$airport, year = recent_years) |>
   left_join(can_fin_raw, by = c('airport', 'year')) |>
@@ -660,6 +682,11 @@ can_fin <- tidyr::expand_grid(airport = ports$airport, year = recent_years) |>
     ebit = ebitda_can - depreciation_amortisation - asset_impairment,
     depreciation_amortisation, asset_impairment,
     abnormal_items = NA_real_, reported_ebit = NA_real_,
+    pension_remeasurement, asset_disposal_loss, contributions,
+    partnership_income, insurance_recoveries,
+    # Gains/income are positive; expense-positive losses are subtracted.
+    non_operating_adjustments = contributions + partnership_income +
+      insurance_recoveries - pension_remeasurement - asset_disposal_loss,
     interest_financing_costs = net_financing_costs,
     net_financing_costs, finance_costs_gross = NA_real_,
     finance_income = NA_real_, one_off_financing_loss = NA_real_,
@@ -773,6 +800,20 @@ if (any(abs(financial_source_annual$ebitda -
             financial_source_annual$ebit) > 0.03, na.rm = TRUE)) {
   stop('Operating EBIT reconciliation failed.')
 }
+# Canadian annual EBIT-to-pretax bridge, checked in nominal CAD millions.
+# Australian reconciliation is intentionally deferred; no residual imputation.
+can_pretax_bridge <- financial_source_annual |>
+  filter(country == 'Canada') |>
+  mutate(calculated_pretax = ebit - interest_financing_costs + non_operating_adjustments,
+         pretax_residual = profit_before_tax - calculated_pretax)
+if (nrow(can_pretax_bridge) != 4L * length(recent_years) ||
+    any(!is.finite(can_pretax_bridge$pretax_residual) |
+        abs(can_pretax_bridge$pretax_residual) > 0.05)) {
+  print(can_pretax_bridge |> select(airport, year, ebit,
+    interest_financing_costs, non_operating_adjustments,
+    calculated_pretax, profit_before_tax, pretax_residual))
+  stop('Canadian EBIT-to-pretax reconciliation failed.')
+}
 # Check reported net income against pretax income less accounting tax expense.
 tax_bridge <- financial_source_annual |>
   filter(!is.na(profit_before_tax),
@@ -793,7 +834,7 @@ if (any(abs(tax_bridge$residual) > 0.05)) {
 financial_vars <- c('ebitda', 'ebit', 'interest_financing_costs',
                     'net_financing_costs', 'finance_costs_gross',
                     'finance_income', 'one_off_financing_loss',
-                    'abnormal_items', 'reported_ebit',
+                    'abnormal_items', 'reported_ebit', 'non_operating_adjustments',
                     'profit_before_tax', 'accounting_income_tax_expense',
                     'net_income', 'ebitda_ebit_revenue_basis',
                     'net_income_revenue_basis', 'shareholder_payouts', 'cash_capital_investment')
@@ -866,7 +907,7 @@ comparison_vars <- c(
   'depreciation_amortisation', 'federal_ground_rent', 'pilt',
   'musqueam_yvr_agreement', 'asset_impairment',
   'ebitda', 'ebitda_margin_pct', 'ebit', 'ebit_margin_pct',
-  'abnormal_items', 'reported_ebit',
+  'abnormal_items', 'reported_ebit', 'non_operating_adjustments',
   'interest_financing_costs', 'net_financing_costs',
   'finance_costs_gross', 'finance_income', 'one_off_financing_loss',
   'profit_before_tax', 'accounting_income_tax_expense', 'net_income',
@@ -1122,7 +1163,7 @@ keep_vars <- c(
   'ebitda', 'ebitda_margin_pct',
   'depreciation_amortisation', 'asset_impairment',
   'ebit', 'ebit_margin_pct',
-  'interest_financing_costs', 'abnormal_items',
+  'interest_financing_costs', 'abnormal_items', 'non_operating_adjustments',
   'profit_before_tax', 'accounting_income_tax_expense',
   'net_income', 'net_profit_margin_pct', 'shareholder_payouts', 'cash_capital_investment'
 )
@@ -1353,6 +1394,7 @@ saveRDS(
     annual_margins = annual_margins,
     comparison_pooled_long = comparison_pooled_long,
     financial_source_annual = financial_source_annual,
+    can_pretax_bridge = can_pretax_bridge,
     scach_reconciliation = scach_reconciliation,
     capital_investment_source = capital_investment_source,
     pass_df = pass_df,
