@@ -175,10 +175,10 @@ export(policy, "00d_policy_context.csv",
   "Transport Canada, Australian Productivity Commission, ACCC and parliamentary sources; URLs in rows",
   "Qualitative source notes; selected institutional analogies and essential differences, not quantified variables.")
 
-# AIRPORT TRAFFIC CONTEXT: matched calendar years, independent of the
-# financial model's existing passenger denominators. Canadian US transborder
-# traffic is international for this comparison. BITRE domestic source is
-# rounded to 100 movements, international is published in individual persons.
+# AIRPORT TRAFFIC CONTEXT: use the same sources and reporting periods as
+# financial comparisons (Canada CY, Australia June-ending FY).
+# Canadian US transborder traffic is international. BITRE is retained only
+# for national Australian context, not for the four individual airports.
 traffic_years <- 2024:2025
 traffic_geos <- tibble::tribble(
   ~geo, ~airport,
@@ -219,21 +219,61 @@ if (nrow(can_traffic) != 10L ||
     residual = reported_total - sector_sum), n = Inf, width = Inf)
   stop("Canadian airport traffic sector totals do not reconcile.")
 }
-aus_traffic <- input_csv(file.path(context_dir, "australia_airport_traffic_2024_2025.csv")) |>
+# Reuse the existing parsed ACCC source. Domestic totals already include
+# regional traffic; do not add regional, on-carriage or general aviation
+# lines to the reported sector totals.
+accc_traffic_sectors <- c("Passengers ('000)" = "reported_total",
+  "Domestic Passengers ('000)" = "domestic_passengers",
+  "International Passengers ('000)" = "international_passengers")
+accc_traffic_raw <- readRDS(here::here("data", "australia",
+  "accc_monitor_data_2005_2025.rds"))$airport_financial |>
+  filter(airport %in% aus_airports, measure %in% names(accc_traffic_sectors)) |>
+  transmute(airport,
+    year = 2000L + as.integer(substring(as.character(year),
+      nchar(as.character(year)) - 1L)),
+    sector = unname(accc_traffic_sectors[as.character(measure)]),
+    passengers = round(value * 1000)) |>
+  filter(year %in% traffic_years)
+check_keys(accc_traffic_raw, c("airport", "year", "sector"), "ACCC traffic sectors")
+aus_traffic <- accc_traffic_raw |>
+  pivot_wider(names_from = sector, values_from = passengers) |>
+  mutate(country = "Australia", transborder_passengers = NA_real_,
+    other_international_passengers = NA_real_,
+    source_domestic = "ACCC airport monitoring report 2024-25 supplementary database",
+    source_international = source_domestic)
+if (nrow(aus_traffic) != 8L ||
+    any(!is.finite(aus_traffic$reported_total)) ||
+    any(!is.finite(aus_traffic$domestic_passengers + aus_traffic$international_passengers)) ||
+    any(abs(aus_traffic$reported_total - aus_traffic$domestic_passengers -
+      aus_traffic$international_passengers) > 1))
+  stop("ACCC airport traffic sectors do not reconcile.")
+# Independently check against the passenger CSV used in the financial model.
+accc_financial_passengers <- input_csv(here::here("data", "australia",
+  "accc_airport_passengers_2007_2025.csv")) |>
+  transmute(airport, year = 2000L + as.integer(substring(as.character(year),
+    nchar(as.character(year)) - 1L)), model_passengers = passengers) |>
+  filter(airport %in% aus_airports, year %in% traffic_years)
+check_keys(accc_financial_passengers, c("airport", "year"), "ACCC financial passenger counts")
+accc_traffic_check <- aus_traffic |>
+  left_join(accc_financial_passengers, by = c("airport", "year"))
+if (any(!is.finite(accc_traffic_check$model_passengers)) ||
+    any(abs(accc_traffic_check$reported_total - accc_traffic_check$model_passengers) > 1))
+  stop("ACCC traffic totals differ from financial model passenger counts.")
+# Preserve BITRE national rows for the later country-context item.
+aus_national_traffic <- input_csv(file.path(context_dir,
+  "australia_airport_traffic_2024_2025.csv")) |>
+  filter(airport == "NATIONAL") |>
   mutate(country = "Australia", reported_total = NA_real_,
     transborder_passengers = NA_real_, other_international_passengers = NA_real_)
-check_keys(aus_traffic, c("airport", "year"), "BITRE passenger movements")
-if (nrow(aus_traffic) != 10L ||
-    !setequal(aus_traffic$airport, c(aus_airports, "NATIONAL")) ||
-    !setequal(aus_traffic$year, traffic_years))
-  stop("Incomplete BITRE airport traffic context.")
-traffic_context <- bind_rows(can_traffic, aus_traffic)
+check_keys(aus_national_traffic, c("airport", "year"), "BITRE national traffic")
+traffic_context <- bind_rows(can_traffic, aus_traffic, aus_national_traffic)
 traffic_totals <- function(d) {
   d |>
     mutate(total_passengers = domestic_passengers + international_passengers,
       domestic_share_pct = 100 * domestic_passengers / total_passengers,
       international_share_pct = 100 * international_passengers / total_passengers,
-      reporting_basis = paste("Calendar year", year),
+      reporting_basis = if_else(country == "Australia" & airport != "NATIONAL",
+        paste("Financial year ending June", year), paste("Calendar year", year)),
       domestic_passengers_m = domestic_passengers / 1e6,
       international_passengers_m = international_passengers / 1e6,
       total_passengers_m = total_passengers / 1e6)
@@ -257,8 +297,8 @@ if (nrow(airport_traffic) != 20L ||
   stop("Incomplete airport traffic context.")
 export(airport_traffic, "01b_airport_traffic_context_2024_2025.csv",
   "Airport traffic size and composition",
-  "Statistics Canada 23-10-0253-01; BITRE Domestic Aviation Activity 2025 Table 5 and International Airline Activity December 2025 Table V",
-  "Calendar-year arrivals and departures; counts and millions, shares in percent. Canada international includes US transborder; Australian transborder split is not applicable. BITRE domestic scheduled RPT traffic on board rounded to nearest 100, international scheduled revenue passengers uplifted/discharged excludes charter; summed Australian total is a context measure, not a separately reported total. Canadian survey coverage differs. BIG4 shares use ratios of sums. Not financial-model passenger denominators.")
+  "Statistics Canada 23-10-0253-01; ACCC 2024-25 supplementary database, parsed airport_financial",
+  "Canada calendar year; Australia financial year ending June, matching the financial comparison. Counts and millions; shares in percent. Canadian international includes US transborder. ACCC reported domestic and international totals are used without adding overlapping regional or other subcategories. BIG4 shares use ratios of sums. ACCC source counts reconcile to the financial model passenger CSV; no changes to model denominators.")
 
 # 1. COMPARABILITY: size and revenue composition, same financial comparison
 # basis as the published workbook. FY 2024-25 Australia versus CY 2025 Canada.
