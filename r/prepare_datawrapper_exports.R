@@ -188,6 +188,7 @@ traffic_geos <- tibble::tribble(
   "Vancouver International, British Columbia", "YVR",
   "Canada", "NATIONAL")
 traffic_sectors <- c("Total, passenger sector" = "reported_total",
+  "Total, passengers enplaned and deplaned" = "reported_total",
   "Domestic sector" = "domestic_passengers",
   "Transborder sector" = "transborder_passengers",
   "Other International sector" = "other_international_passengers")
@@ -212,7 +213,11 @@ if (nrow(can_traffic) != 10L ||
     any(!is.finite(can_traffic$domestic_passengers + can_traffic$international_passengers)) ||
     any(abs(can_traffic$reported_total - can_traffic$domestic_passengers -
       can_traffic$international_passengers) > 1))
+{
+  print(can_traffic |> mutate(sector_sum = domestic_passengers + international_passengers,
+    residual = reported_total - sector_sum), n = Inf, width = Inf)
   stop("Canadian airport traffic sector totals do not reconcile.")
+}
 aus_traffic <- input_csv(file.path(context_dir, "australia_airport_traffic_2024_2025.csv")) |>
   mutate(country = "Australia", reported_total = NA_real_,
     transborder_passengers = NA_real_, other_international_passengers = NA_real_)
