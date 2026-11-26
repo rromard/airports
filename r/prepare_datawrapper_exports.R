@@ -188,35 +188,20 @@ traffic_geos <- tibble::tribble(
   "Vancouver International, British Columbia", "YVR",
   "Canada", "NATIONAL")
 traffic_sectors <- c("Total, passenger sector" = "reported_total",
-  "Total, passengers enplaned and deplaned" = "reported_total",
   "Domestic sector" = "domestic_passengers",
   "Transborder sector" = "transborder_passengers",
   "Other International sector" = "other_international_passengers")
 # Keep the national rows for the subsequent country-context export.
+# cansim returns factors by default: index the named lookup by labels,
+# not by the underlying integer factor codes.
 can_traffic_raw <- cansim::get_cansim("23-10-0253-01") |>
   janitor::clean_names() |>
   filter(geo %in% traffic_geos$geo) |>
   mutate(year = as.integer(substr(as.character(ref_date), 1L, 4L)),
-    sector = unname(traffic_sectors[air_passenger_traffic])) |>
+    sector = unname(traffic_sectors[as.character(air_passenger_traffic)])) |>
   filter(year %in% traffic_years, !is.na(sector)) |>
   inner_join(traffic_geos, by = "geo") |>
-  transmute(airport, year, sector, passengers = as.numeric(val_norm),
-    source_label = air_passenger_traffic)
-# The cube can contain both total labels. Collapse identical observations
-# and ignore unavailable legacy observations only when a valid value exists.
-# Never sum aliases or silently choose between conflicting finite values.
-can_traffic_conflicts <- can_traffic_raw |>
-  group_by(airport, year, sector) |>
-  filter(n_distinct(passengers[is.finite(passengers)]) > 1L) |>
-  ungroup()
-if (nrow(can_traffic_conflicts)) {
-  print(can_traffic_conflicts, n = Inf, width = Inf)
-  stop("Conflicting Canadian traffic sector observations.")
-}
-can_traffic_raw <- can_traffic_raw |>
-  group_by(airport, year, sector) |>
-  summarise(passengers = if (any(is.finite(passengers)))
-    first(passengers[is.finite(passengers)]) else NA_real_, .groups = "drop")
+  transmute(airport, year, sector, passengers = as.numeric(val_norm))
 check_keys(can_traffic_raw, c("airport", "year", "sector"), "Canadian traffic sectors")
 can_traffic <- can_traffic_raw |>
   pivot_wider(names_from = sector, values_from = passengers) |>
