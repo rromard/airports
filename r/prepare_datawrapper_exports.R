@@ -764,34 +764,26 @@ export(impacts, "08_revenue_impacts_2025.csv",
   "2025; original per_pax fields use total passengers. Additional per_est_enplaned_pax fields apply only to parking and ground transportation, using 50% of total passengers as estimated enplanements, in 2025 CAD. Do not stack these fields with total-passenger rates. Category uplift is NOT a fee/passenger-incidence forecast. Total and three components must not be added together.")
 
 # 8. DIRECTLY OBSERVED REAL AUSTRALIAN HISTORICAL REVENUE PATH.
-# The counterfactual script already deflates the ACCC historical nominal
-# data using Australian FY CPI. Reuse that output; no duplicate CPI logic.
-history_real <- input_csv(file.path(base_legacy,
-  "australia_observed_real_yield_1998_2007.csv"), required = FALSE)
-if (is.null(history_real)) {
-  pending("Australia observed 1998–2007 real path",
-    "airport_revenue_counterfactual.R historical ACCC/FAC yield + Australian CPI",
-    "Run the existing legacy counterfactual script with the new real-history export, then rerun presentation exports.")
-} else {
-  require_columns(history_real, c("airport", "australian_fy_end",
-    "real_yield", "index_1998", "source", "regulatory_period"),
-    "observed Australian historical yields")
-  check_keys(history_real, c("airport", "australian_fy_end"),
-    "observed Australian history")
-  if (nrow(history_real) != 50L ||
-      any(!is.finite(history_real$index_1998)))
-    stop("Expected 40 airport-year and 10 pooled historical index rows.")
-  require_columns(history_real, c("nominal_aud_pp", "real_aud_pp_2025"),
-    "Historical dollar yields; rerun r/airport_revenue_counterfactual.R with updated code")
-  if (any(!is.finite(history_real$real_aud_pp_2025) | history_real$real_aud_pp_2025 <= 0))
-    stop("Missing constant-dollar historical yield; rerun the updated historical script.")
-  history_real <- history_real |>
-    mutate(real_cad_pp_2025 = real_aud_pp_2025 * cad_per_aud_2025)
-  export(history_real, "09_australia_observed_real_yield_1998_2007.csv",
-    "Australia observed 1998–2007 real path",
-    "airport_revenue_counterfactual.R: CPI-deflated ACCC Figure 2.2 and FAC Sydney 1998",
-    "Real aeronautical yield index 1998=100; BIG4 index is an unweighted mean of four airport indexes. BIG4 dollar yields are separate unweighted means of four airport yields. real_yield retains the original CPI-normalized value; real_aud_pp_2025 uses the FY2025 CPI from the same historical CPI vintage; real_cad_pp_2025 applies the production fixed 2025 CAD/AUD exchange rate. Sydney 1998 FAC source differs in scope from other ACCC figures.")
-}
+# This is observed source data, not an output of the optional legacy model.
+# Share the exact CPI and index construction with that model.
+source(here::here("r", "observed_australian_history.R"), local = TRUE)
+history_real <- build_observed_australian_history(
+  here::here("output", "accc_legacy_vector_selected.csv"), aus_airports)$chart
+require_columns(history_real, c("airport", "australian_fy_end",
+  "nominal_aud_pp", "real_yield", "real_aud_pp_2025", "index_1998",
+  "source", "regulatory_period"), "observed Australian historical yields")
+check_keys(history_real, c("airport", "australian_fy_end"),
+  "observed Australian history")
+if (nrow(history_real) != 50L ||
+    any(!is.finite(history_real$index_1998)) ||
+    any(!is.finite(history_real$real_aud_pp_2025) | history_real$real_aud_pp_2025 <= 0))
+  stop("Expected 40 airport-year and 10 unweighted historical mean rows.")
+history_real <- history_real |>
+  mutate(real_cad_pp_2025 = real_aud_pp_2025 * cad_per_aud_2025)
+export(history_real, "09_australia_observed_real_yield_1998_2007.csv",
+  "Australia observed 1998–2007 real path",
+  "observed_australian_history.R: CPI-deflated ACCC Figure 2.2 and FAC Sydney 1998",
+  "Real aeronautical yield index 1998=100; BIG4 index is an unweighted mean of four airport indexes. BIG4 dollar yields are separate unweighted means of four airport yields. real_yield retains the original CPI-normalized value; real_aud_pp_2025 uses the FY2025 CPI from the same historical CPI vintage; real_cad_pp_2025 applies the production fixed 2025 CAD/AUD exchange rate. Sydney 1998 FAC source differs in scope from other ACCC figures.")
 
 # 9. OPTIONAL HISTORY: historical cap-then-shock and immediate shock paths.
 # This older model is OFF by default in run_pipeline.R and should be run
