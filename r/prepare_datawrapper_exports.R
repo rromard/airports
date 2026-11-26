@@ -300,6 +300,60 @@ export(airport_traffic, "01b_airport_traffic_context_2024_2025.csv",
   "Statistics Canada 23-10-0253-01; ACCC 2024-25 supplementary database, parsed airport_financial",
   "Canada calendar year; Australia financial year ending June, matching the financial comparison. Counts and millions; shares in percent. Canadian international includes US transborder. ACCC reported domestic and international totals are used without adding overlapping regional or other subcategories. BIG4 shares use ratios of sums. ACCC source counts reconcile to the financial model passenger CSV; no changes to model denominators.")
 
+# NATIONAL TRAFFIC AND ECONOMIC CONTEXT.
+# BITRE domestic scheduled airport movements (Table 5) exclude charters.
+# Add Table 9 national charter airport movements, not Table 8 passenger trips.
+national_charters <- tibble::tibble(year = c(2024L, 2025L),
+  domestic_charter_passengers = c(8655500, 8695400))
+national_traffic <- traffic_context |>
+  filter(airport == "NATIONAL") |>
+  left_join(national_charters, by = "year") |>
+  mutate(domestic_charter_passengers = if_else(country == "Australia",
+      domestic_charter_passengers, NA_real_),
+    domestic_scheduled_passengers = if_else(country == "Australia",
+      domestic_passengers, NA_real_),
+    domestic_passengers = if_else(country == "Australia",
+      domestic_passengers + domestic_charter_passengers, domestic_passengers)) |>
+  traffic_totals() |>
+  select(-airport) |>
+  arrange(country, year)
+check_keys(national_traffic, c("country", "year"), "national passenger traffic")
+if (nrow(national_traffic) != 4L ||
+    any(!is.finite(national_traffic$total_passengers) |
+      national_traffic$total_passengers <= 0) ||
+    any(national_traffic$domestic_passengers < 0 |
+      national_traffic$international_passengers < 0))
+  stop("Incomplete national passenger traffic.")
+export(national_traffic, "00h_national_passenger_traffic_2024_2025.csv",
+  "National passenger traffic",
+  "Statistics Canada 23-10-0253-01; BITRE Domestic Aviation Activity 2025 Tables 5 and 9; International Airline Activity December 2025",
+  "Calendar-year airport passenger movements (arrivals plus departures), not unique travellers or trips. Domestic trips count at both endpoints. Canada international includes US transborder. Australia domestic includes scheduled and estimated charter movements; international scheduled revenue passengers exclude charter. Canadian charter coverage differs; Canadian scheduled/charter split unavailable. Counts and millions; shares in percent.")
+
+# Retain the original World Bank context export and its rounded GDP measure.
+# Nominal 2025 GDP needs only currency conversion, not inflation adjustment.
+# Bank of Canada 2025 annual average: CAD per USD.
+cad_per_usd_2025 <- 1.3978
+national_context <- country_context |>
+  left_join(national_traffic |> filter(year == 2025L) |> select(-year),
+    by = "country") |>
+  mutate(
+    gdp_2025_cad_trillion_approx = gdp_2025_usd_trillion_rounded * cad_per_usd_2025,
+    gdp_per_capita_2025_cad = gdp_per_capita_2025_usd * cad_per_usd_2025,
+    domestic_passengers_per_capita = domestic_passengers / population_2025,
+    international_passengers_per_capita = international_passengers / population_2025,
+    total_passengers_per_capita = total_passengers / population_2025,
+    cad_per_usd_2025 = cad_per_usd_2025,
+    source_fx = "https://www.bankofcanada.ca/rates/exchange/annual-average-exchange-rates/")
+check_keys(national_context, "country", "national context")
+if (nrow(national_context) != 2L ||
+    any(!is.finite(national_context$total_passengers_per_capita)) ||
+    any(national_context$population_2025 <= 0))
+  stop("Incomplete country comparison.")
+export(national_context, "00i_country_traffic_economic_context_2025.csv",
+  "Country traffic and economic comparability",
+  "Existing World Bank country context; national passenger traffic export; Bank of Canada annual average exchange rates",
+  "Calendar-year 2025 traffic and existing 2025 population estimates. Movements per capita are airport activity intensity, not resident travel frequency. GDP in CAD trillions is approximate because the original USD GDP is rounded to 0.1 trillion; GDP per capita uses the separately published World Bank USD measure. Nominal 2025 CAD at 1.3978 CAD per USD, not PPP. Australian domestic includes charters; international excludes charter. See national passenger traffic catalog for coverage.")
+
 # 1. COMPARABILITY: size and revenue composition, same financial comparison
 # basis as the published workbook. FY 2024-25 Australia versus CY 2025 Canada.
 scale <- annual_abs |>
