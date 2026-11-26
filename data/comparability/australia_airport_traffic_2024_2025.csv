@@ -1,0 +1,11 @@
+airport,year,domestic_passengers,international_passengers,source_domestic,source_international
+SYD,2024,25136000,16403641,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
+MEL,2024,24146500,11496036,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
+BNE,2024,17115000,6146538,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
+PER,2024,8888200,4799026,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
+SYD,2025,25413900,17257802,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
+MEL,2025,24589500,12273329,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
+BNE,2025,17586800,6953971,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
+PER,2025,9356100,5395068,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
+NATIONAL,2024,118576500,41357825,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
+NATIONAL,2025,120881300,44841303,https://www.bitre.gov.au/sites/default/files/documents/Domestic-Aviation-Activity-2025.pdf,https://www.bitre.gov.au/sites/default/files/documents/International_airline_activity_1225.pdf
