@@ -455,7 +455,7 @@ value_type_for <- function(country, airport, variable) {
       'finance_costs_gross', 'one_off_financing_loss', 'profit_before_tax', 'net_income',
       'shareholder_payouts') ~ 'derived',
     country == 'Canada' & variable %in% c('total_aero', 'ebit',
-                                         'profit_before_tax') ~ 'derived',
+                                         'profit_before_tax', 'non_operating_adjustments') ~ 'derived',
     country == 'Australia' & variable %in% c(
       'commercial_revenue', 'parking_transport_revenue',
       'operating_expenses',
@@ -497,6 +497,8 @@ formula_for <- function(country, airport, variable) {
       'ebitda - depreciation_amortisation - asset_impairment',
     variable == 'ebit' & country == 'Australia' ~
       'operating profit (after D&A, excludes abnormal items)',
+    variable == 'non_operating_adjustments' & country == 'Canada' ~
+      'contributions + partnership income + insurance recoveries - pension remeasurement loss - disposal loss',
     variable == 'profit_before_tax' & country == 'Canada' ~
       'net_income (Canadian tax-exempt airport authority convention)',
     variable == 'accounting_income_tax_expense' & country == 'Canada' ~
@@ -1018,6 +1020,7 @@ var_dictionary <- tribble(
   'ebit_margin_pct', 'Operating EBIT / matched operating revenue, percentage points',
   'interest_financing_costs', 'Financing/interest costs per model source conventions',
   'abnormal_items', 'ACCC reported abnormal items',
+  'non_operating_adjustments', 'Canadian signed non-operating income and expenses; Australian bridge pending',
   'profit_before_tax', 'Profit before income tax',
   'accounting_income_tax_expense', 'Accounting income-tax expense, not cash taxes',
   'net_income', 'Net income / profit after tax (Sydney before RPS remuneration and redemption loss)',
