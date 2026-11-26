@@ -18,7 +18,7 @@ if (!requireNamespace('readxl', quietly = TRUE) ||
 }
 
 source_sheet <- 'Big 4 standard'
-xlsx_path <- here::here('output', 'Airport privatization CCPA sheet.xlsx')
+xlsx_path <- here::here('preserved_data', 'Airport privatization CCPA sheet.xlsx')
 if (!source_sheet %in% readxl::excel_sheets(xlsx_path)) {
   stop("Expected '", source_sheet, "' worksheet in: ", xlsx_path)
 }
