@@ -291,7 +291,14 @@ historical_cpi <- readabs::read_cpi() |>
   ) |> 
   group_by(year) |>
   summarise(cpi = mean(cpi), .groups = "drop") |>
-  filter(year %in% 1998:2007)
+  filter(year %in% c(1998:2007, 2025L))
+
+# Use the same CPI vintage and index base for historical and target prices.
+# Scaling the existing real yield by this constant does not alter growth.
+historical_cpi_2025 <- historical_cpi$cpi[historical_cpi$year == 2025L]
+if (length(historical_cpi_2025) != 1L ||
+    !is.finite(historical_cpi_2025) || historical_cpi_2025 <= 0)
+  stop("Missing valid Australian FY2025 CPI for historical dollar yields.")
 
 history <- readr::read_csv(historical_path, show_col_types = FALSE) |> 
   filter(airport %in% aus_airports, as.character(chart) == '2.2',
@@ -626,6 +633,7 @@ history_chart <- history |>
   dplyr::group_by(airport) |>
   dplyr::mutate(
     index_1998 = 100 * real_yield / real_yield[year == 1998L],
+    real_aud_pp_2025 = real_yield * historical_cpi_2025,
     source = dplyr::if_else(airport == 'SYD' & year == 1998L,
       'FAC 1997-98 source (different adjustment scope)',
       'ACCC 2006-07 Figure 2.2'),
@@ -634,12 +642,16 @@ history_chart <- history |>
   ) |>
   dplyr::ungroup() |>
   dplyr::select(airport, australian_fy_end = year, nominal_aud_pp,
-                real_yield, index_1998, source, regulatory_period)
+                real_yield, real_aud_pp_2025, index_1998, source, regulatory_period)
 history_pooled_chart <- history_chart |>
   dplyr::group_by(australian_fy_end, regulatory_period) |>
-  dplyr::summarise(index_1998 = mean(index_1998), .groups = 'drop') |>
-  dplyr::mutate(airport = 'BIG4', source = 'Unweighted mean of four airport indexes',
-                nominal_aud_pp = NA_real_, real_yield = NA_real_) |>
+  dplyr::summarise(index_1998 = mean(index_1998),
+                   nominal_aud_pp = mean(nominal_aud_pp),
+                   real_yield = mean(real_yield),
+                   real_aud_pp_2025 = mean(real_aud_pp_2025),
+                   .groups = 'drop') |>
+  dplyr::mutate(airport = 'BIG4',
+                source = 'Unweighted means of four airport yields and separately normalized indexes') |>
   dplyr::select(dplyr::all_of(names(history_chart)))
 readr::write_csv(dplyr::bind_rows(history_chart, history_pooled_chart),
   file.path(out_dir, 'australia_observed_real_yield_1998_2007.csv'))
