@@ -200,7 +200,23 @@ can_traffic_raw <- cansim::get_cansim("23-10-0253-01") |>
     sector = unname(traffic_sectors[air_passenger_traffic])) |>
   filter(year %in% traffic_years, !is.na(sector)) |>
   inner_join(traffic_geos, by = "geo") |>
-  transmute(airport, year, sector, passengers = as.numeric(val_norm))
+  transmute(airport, year, sector, passengers = as.numeric(val_norm),
+    source_label = air_passenger_traffic)
+# The cube can contain both total labels. Collapse identical observations
+# and ignore unavailable legacy observations only when a valid value exists.
+# Never sum aliases or silently choose between conflicting finite values.
+can_traffic_conflicts <- can_traffic_raw |>
+  group_by(airport, year, sector) |>
+  filter(n_distinct(passengers[is.finite(passengers)]) > 1L) |>
+  ungroup()
+if (nrow(can_traffic_conflicts)) {
+  print(can_traffic_conflicts, n = Inf, width = Inf)
+  stop("Conflicting Canadian traffic sector observations.")
+}
+can_traffic_raw <- can_traffic_raw |>
+  group_by(airport, year, sector) |>
+  summarise(passengers = if (any(is.finite(passengers)))
+    first(passengers[is.finite(passengers)]) else NA_real_, .groups = "drop")
 check_keys(can_traffic_raw, c("airport", "year", "sector"), "Canadian traffic sectors")
 can_traffic <- can_traffic_raw |>
   pivot_wider(names_from = sector, values_from = passengers) |>
