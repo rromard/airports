@@ -838,6 +838,18 @@ history_parsed <- readRDS(history_rds_path)
 history_parking <- history_parsed$carpark_financial
 require_columns(history_parking, c("airport", "year", "section", "measure",
   "value"), "historical ACCC parking source")
+# Landside access volumes are reported as both counts and millions.
+# Use the count row only; the millions row is the same observation.
+# Source coverage begins FY2009-10; do not impute earlier years.
+history_landside <- history_parking |> history_filter() |>
+  filter(section == "landside", measure == "Total landside access volume") |>
+  transmute(airport, year, landside_access_volume = value)
+check_keys(history_landside, history_keys, "landside access volume")
+if (nrow(history_landside) == 0L ||
+    any(table(history_landside$airport[is.finite(history_landside$landside_access_volume)]) != 16L) ||
+    !setequal(history_landside$airport[is.finite(history_landside$landside_access_volume)], aus_airports) ||
+    any(history_landside$landside_access_volume < 0, na.rm = TRUE))
+  stop("Unexpected landside access volume coverage in parsed ACCC data.")
 history_parking <- history_parking |> history_filter() |>
   filter(section == "car_parking")
 # Financial table throughput is in thousands, with fixed precinct rows in
@@ -870,6 +882,7 @@ for (d in list(history_fin, history_pass, throughput, vehicle_rates, history_roa
 history_airports <- history_fin |>
   left_join(history_pass, by = history_keys) |>
   left_join(throughput, by = history_keys) |>
+  left_join(history_landside, by = history_keys) |>
   left_join(vehicle_rates, by = history_keys) |>
   left_join(history_roa, by = history_keys) |>
   mutate(
@@ -893,7 +906,8 @@ history_amounts <- c(history_amounts, "commercial_revenue",
 history_big4 <- history_airports |>
   group_by(year) |>
   summarise(across(all_of(c(history_amounts, "passengers",
-    "parking_vehicles_reported", "parking_vehicles_implied")), complete_sum),
+    "parking_vehicles_reported", "parking_vehicles_implied",
+    "landside_access_volume")), complete_sum),
     .groups = "drop") |>
   mutate(airport = "BIG4",
     parking_revenue_per_vehicle = if_else(parking_vehicles_implied > 0,
@@ -921,6 +935,8 @@ history_full <- bind_rows(history_airports, history_big4) |>
       history_divide(parking_expenses * 1e6, parking_vehicles_reported),
     parking_profit_per_reported_vehicle =
       history_divide(parking_profit * 1e6, parking_vehicles_reported),
+    landside_revenue_per_access = history_divide(landside_revenue * 1e6,
+      landside_access_volume),
     total_op_margin = history_divide(100 * total_profit, total_revenue),
     aero_op_margin = history_divide(100 * aero_profit, aero_revenue),
     parking_op_margin = history_divide(100 * parking_profit, parking_revenue),
@@ -940,7 +956,11 @@ history_full <- bind_rows(history_airports, history_big4) |>
       "other_profit"))), other_excl_landside_revenue,
     other_incl_landside_expenses, other_incl_landside_profit),
     ~ history_divide(100 * .x, .x[year == 2008L][1]),
-    .names = "{.col}_index_2008")) |>
+    .names = "{.col}_index_2008"),
+    # Access counts and yields start in FY2009-10, unlike most financial series.
+    across(c(landside_access_volume, landside_revenue_per_access, landside_revenue),
+      ~ history_divide(100 * .x, .x[year == 2010L][1]),
+      .names = "{.col}_index_2010")) |>
   ungroup() |>
   relocate(airport, year, financial_year, passengers,
     parking_vehicles_reported, parking_vehicles_implied) |>
@@ -955,12 +975,13 @@ history_money_cols <- c(setdiff(history_amounts, c("other_revenue", "other_expen
 history_full <- history_full |>
   mutate(across(c(all_of(history_money_cols), ends_with("_per_passenger"),
     ends_with("_per_vehicle"), ends_with("_per_reported_vehicle"),
-    ends_with("_per_est_enplaned_pax")), ~ .x * cad_per_aud_2025),
+    ends_with("_per_est_enplaned_pax"), landside_revenue_per_access),
+    ~ .x * cad_per_aud_2025),
     currency = "CAD", price_base = "2025")
 export(history_full, "09b_australia_financial_history_2008_2025.csv",
   "Historical Australian airport financials and parking",
   "ACCC supplementary financial workbook, passenger CSV and parsed carpark_financial RDS",
-  "FY2007-08 to FY2024-25; real 2025 CAD millions for monetary levels, CAD for yields (ACCC real FY2024-25 AUD multiplied by production fixed 2025 CAD/AUD rate), persons/vehicles for counts; percent for margins and EBITA returns; indices FY2007-08=100 (missing if baseline unavailable or nonpositive). Operating profit is ACCC operating profit after D&A, not EBITDA or net income. Parking per estimated enplaned passenger uses half of total passengers. Airport per_vehicle rates are published ACCC rates; BIG4 per_vehicle rates use implied vehicle counts from published revenue yields. Separate per_reported_vehicle rates use reported financial-table throughput summed across precincts; Perth throughput and published yields do not always reconcile. Implied vehicle counts are diagnostic estimates, not observed counts. BIG4 rates and margins are ratios of sums; no aggregate EBITA ROA without matching asset denominators. Other excl landside revenue differs in scope from other incl landside expenses/profit; the residual margin uses other incl landside revenue. Categories overlap; not all columns are additive. No extrapolation or additional CPI adjustment.")
+  "FY2007-08 to FY2024-25; real 2025 CAD millions for monetary levels, CAD for yields (ACCC real FY2024-25 AUD multiplied by production fixed 2025 CAD/AUD rate), persons/vehicles for counts; percent for margins and EBITA returns; indices FY2007-08=100 (missing if baseline unavailable or nonpositive). Operating profit is ACCC operating profit after D&A, not EBITDA or net income. Parking per estimated enplaned passenger uses half of total passengers. Airport per_vehicle rates are published ACCC rates; BIG4 per_vehicle rates use implied vehicle counts from published revenue yields. Separate per_reported_vehicle rates use reported financial-table throughput summed across precincts; Perth throughput and published yields do not always reconcile. Implied vehicle counts are diagnostic estimates, not observed counts. BIG4 rates and margins are ratios of sums; no aggregate EBITA ROA without matching asset denominators. Other excl landside revenue differs in scope from other incl landside expenses/profit; the residual margin uses other incl landside revenue. Landside access counts are the reported total access volumes, not unique passengers; yield is revenue per reported access in real 2025 CAD, BIG4 is the ratio of sums. Access counts and yields begin FY2009-10; access-related indices use FY2009-10=100. Melbourne has a large discontinuity in reported volume between FY2013-14 and FY2014-15; retain as reported, not necessarily a change in actual prices. Categories overlap; not all columns are additive. No extrapolation or additional CPI adjustment.")
 
 # 9. OPTIONAL QUALITY: preserve exact ACCC survey series and classification.
 quality_path <- here::here("data", "australia",
