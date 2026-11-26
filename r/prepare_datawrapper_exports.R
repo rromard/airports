@@ -508,6 +508,7 @@ full_financial_measures <- c(financial_measures,
   depreciation_amortisation = "Depreciation and amortisation",
   asset_impairment = "Asset impairment",
   abnormal_items = "Abnormal items",
+  non_operating_adjustments = "Non-operating adjustments (signed)",
   accounting_income_tax_expense = "Accounting income tax expense")
 full_metrics <- names(full_financial_measures)
 margin_metrics <- full_metrics[grepl("_pct$", full_metrics)]
@@ -646,7 +647,7 @@ if (nrow(full_financial) != 40L * (2L * length(money_metrics) +
 export(full_financial, "03c_full_financials_2023_2025.csv",
   "Current Canadian–Australian airport financials, full annual and pooled panel",
   "Annual and pooled comparison CSVs; financial comparison audit passenger and margin bases",
-  "All published harmonized metrics; monetary amounts in real 2025 CAD. Annual and pooled 2023-2025; pooled absolute figures are three-year sums, not annual averages. BIG4 yields and margins are ratios of sums, not means of airport ratios. Missing or inapplicable inputs remain NA, including country totals without complete coverage. Sydney below-operating results and cash investment use SCACH CY; Australian BIG4 combines June FY and Sydney CY for those metrics. Per-passenger rates use the upstream passenger series, including Sydney FY passenger counts for SCACH CY metrics. Parking alternative yield estimates enplanements as half of total passengers and must not be stacked with total-passenger rates. Metrics overlap; not all are additive. Profitability is whole-airport, not segment-specific.")
+  "All published harmonized metrics; monetary amounts in real 2025 CAD. Annual and pooled 2023-2025; pooled absolute figures are three-year sums, not annual averages. BIG4 yields and margins are ratios of sums, not means of airport ratios. Missing or inapplicable inputs remain NA, including country totals without complete coverage. Sydney below-operating results and cash investment use SCACH CY; Australian BIG4 combines June FY and Sydney CY for those metrics. Per-passenger rates use the upstream passenger series, including Sydney FY passenger counts for SCACH CY metrics. Parking alternative yield estimates enplanements as half of total passengers and must not be stacked with total-passenger rates. Canadian non-operating adjustments = contributions + partnership income + insurance recoveries - pension remeasurement loss - disposal loss. Australian adjustments remain unavailable pending reconciliation; existing abnormal items are unchanged. Metrics overlap; not all are additive. Profitability is whole-airport, not segment-specific.")
 
 # 4. AUSTRALIAN AIRPORT TAXATION: two already assembled source panels.
 # Preserve nominal AUD accounting/tax diagnostics and append real CAD amounts
