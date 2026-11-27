@@ -123,8 +123,8 @@ if (!all(required_compare %in% names(final_totals))) {
        call. = FALSE)
 }
 # All financial amounts in final_totals have already been expressed in 2025
-# CAD. Use the actual EBITDA-ACCC total operating revenue, not
-# SCACH's separate Sydney net-profit revenue basis.
+# CAD. Use matched operating EBITDA and revenue: contemporary SCACH for
+# Sydney, ACCC for the other three airports. Historical allocation stays ACCC.
 bridge_australia <- final_totals |>
   filter(country == 'Australia') |>
   mutate(year_label = if_else(is.na(year), '2023-25',
