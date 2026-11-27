@@ -720,7 +720,42 @@ if (is.null(tax_rates)) {
   require_columns(tax_rates, c("fyear", tax_chart_cols), "Australian airport tax rates")
   check_keys(tax_rates, c("airport", "fyear"), "Australian airport tax rates")
   require_columns(tax_rates, "period", "Australian annual tax periods")
-  tax_rates_real <- tax_to_real_cad(tax_rates, tax_money_cols)
+  tax_rates_real <- tax_to_real_cad(tax_rates, tax_money_cols) |>
+    left_join(comparison_audit$scach_cpi |>
+      transmute(year_end = year, scach_cy_factor = adjustment_to_2025),
+      by = "year_end")
+  # Recent SCACH accounting and cash-tax amounts use the same CY conversion
+  # as the financial comparison. ATO return values retain their FY factors.
+  # Preserve earlier tax observations' existing FY proxy for CY inflation.
+  syd_recent_tax <- with(tax_rates_real, airport == "SYD" & is.finite(scach_cy_factor))
+  for (nm in c("reported_ebt", "adjusted_ebt", "reported_tax_expense",
+               "expected_tax_on_adjusted_ebt", "reported_cash_tax_paid",
+               "expected_tax_less_cash_tax")) {
+    tax_rates_real[[paste0(nm, "_cad_2025")]][syd_recent_tax] <-
+      tax_rates_real[[nm]][syd_recent_tax] *
+      tax_rates_real$scach_cy_factor[syd_recent_tax] * cad_per_aud_2025
+  }
+  tax_rates_real <- tax_rates_real |>
+    mutate(
+      adjusted_ebt_less_taxable_income_cad_2025 =
+        adjusted_ebt_cad_2025 - ato_taxable_income_cad_2025,
+      expected_tax_less_tax_payable_cad_2025 =
+        expected_tax_on_adjusted_ebt_cad_2025 - ato_tax_payable_cad_2025) |>
+    select(-scach_cy_factor)
+  syd_tax_check <- tax_rates_real |>
+    filter(airport == "SYD", year_end %in% 2023:2025) |>
+    left_join(financial_basis |>
+      filter(airport == "SYD") |>
+      transmute(year_end = year,
+        financial_pbt_cad = profit_before_tax * adjustment_to_2025 * fx_cad_per_unit * 1e6,
+        financial_tax_cad = accounting_income_tax_expense * adjustment_to_2025 * fx_cad_per_unit * 1e6),
+      by = "year_end")
+  if (nrow(syd_tax_check) != 3L ||
+      any(!is.finite(syd_tax_check$financial_pbt_cad) |
+          !is.finite(syd_tax_check$financial_tax_cad) |
+          abs(syd_tax_check$adjusted_ebt_cad_2025 - syd_tax_check$financial_pbt_cad) > 1 |
+          abs(syd_tax_check$reported_tax_expense_cad_2025 - syd_tax_check$financial_tax_cad) > 1))
+    stop("Contemporary SCACH tax and financial presentation amounts disagree.")
   if (!all(tax_rates$year_end %in% presentation_aus_cpi$year))
     stop("Australian annual tax rates outside available CPI coverage.")
   export(tax_rates_real |>
@@ -729,7 +764,7 @@ if (is.null(tax_rates)) {
     "04_australia_tax_cash_accounting_2016_2025.csv",
     "Australian airport taxation",
     "airport_tax_with_cash.R: ACCC regulatory accounts + PADG and SCACH inputs + ATO tax transparency",
-    "Original monetary fields nominal AUD dollars; _cad_2025 fields real 2025 CAD dollars using production FY CPI and fixed FX (Sydney CY uses corresponding FY factor). Annual tax ratios unchanged. BNE/MEL use ACCC regulatory EBT and cash taxes. PER uses consolidated PADG EBT excluding signed financing valuation movements and consolidated cash taxes. Accounting ETR uses reported EBT; book-to-tax difference and payable gap use adjusted EBT. ATO nonpositive income is a zero proxy; scope and timing differences mean these are not measured deductions. SYD uses adjusted SCACH calendar-year EBT (RPS interest, RPS debt-cost amortisation and exceptional redemption loss added back); the illustrative gap assumes zero corporate cash tax, while observed Sydney cash taxes and cash ETR remain NA. Investor-level taxes are outside scope. ATO payable and taxable income are separate tax-return diagnostics. ACCC cash payments may reflect regulatory entity scope or tax-sharing arrangements; not verified ultimate-parent tax remittances.")
+    "Original monetary fields nominal AUD dollars; _cad_2025 fields real 2025 CAD dollars using production FY CPI and fixed FX; SCACH accounting amounts in 2023-25 use the matching contemporary CY factor. Earlier Sydney CY amounts retain the FY proxy. ATO values use FY factors; differences are computed from separately converted amounts. Annual tax ratios unchanged. BNE/MEL use ACCC regulatory EBT and cash taxes. PER uses consolidated PADG EBT excluding signed financing valuation movements and consolidated cash taxes. Accounting ETR uses reported EBT; book-to-tax difference and payable gap use adjusted EBT. ATO nonpositive income is a zero proxy; scope and timing differences mean these are not measured deductions. SYD uses adjusted SCACH calendar-year EBT (RPS interest, RPS debt-cost amortisation and exceptional redemption loss added back); the illustrative gap assumes zero corporate cash tax, while observed Sydney cash taxes and cash ETR remain NA. Investor-level taxes are outside scope. ATO payable and taxable income are separate tax-return diagnostics. ACCC cash payments may reflect regulatory entity scope or tax-sharing arrangements; not verified ultimate-parent tax remittances.")
 }
 tax_periods <- input_csv(file.path(tax_dir, "aus_airport_tax_periods.csv"),
                           required = FALSE)
@@ -759,7 +794,7 @@ if (!is.null(tax_periods)) {
     "04c_australia_tax_periods.csv",
     "Australian airport taxation",
     "airport_tax_with_cash.R: period totals and ratios",
-    "Original amounts nominal AUD dollars; _cad_2025 amounts sum annually converted real 2025 CAD dollars. ETRs are unchanged nominal five-year ratios of sums, signed EBT with losses offsetting profits. BNE/MEL gap = 30% of ACCC regulatory EBT less reported ACCC cash taxes. PER uses adjusted PADG EBT and consolidated cash taxes. Accounting ETR uses reported EBT; book-to-tax difference and payable gap use adjusted EBT. ATO nonpositive income is a zero proxy. Sydney hypothetical gap = 30% of adjusted SCACH EBT less assumed zero corporate cash tax; actual Sydney cash taxes/ETR remain NA. No investor-level tax adjustment. Period 2015-2020 means years ending 2016-2020, including FY2019-20; SYD uses calendar years, others June fiscal years. Missing observed cash propagates unless the explicit Sydney scenario is enabled.")
+    "Original amounts nominal AUD dollars; _cad_2025 amounts sum annually converted real 2025 CAD dollars. ETRs are unchanged nominal five-year ratios of sums, signed EBT with losses offsetting profits. Recent SCACH accounting amounts use CY CPI; earlier Sydney years retain the FY proxy. ATO values use FY CPI. BNE/MEL gap = 30% of ACCC regulatory EBT less reported ACCC cash taxes. PER uses adjusted PADG EBT and consolidated cash taxes. Accounting ETR uses reported EBT; book-to-tax difference and payable gap use adjusted EBT. ATO nonpositive income is a zero proxy. Sydney hypothetical gap = 30% of adjusted SCACH EBT less assumed zero corporate cash tax; actual Sydney cash taxes/ETR remain NA. No investor-level tax adjustment. Period 2015-2020 means years ending 2016-2020, including FY2019-20; SYD uses calendar years, others June fiscal years. Missing observed cash propagates unless the explicit Sydney scenario is enabled.")
 }
 ato_airport <- input_csv(file.path(tax_dir,
   "ato_airport_tax_2013_2025.csv"), required = FALSE)
