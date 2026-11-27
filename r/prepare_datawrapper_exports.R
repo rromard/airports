@@ -846,7 +846,8 @@ acquisition_money <- c("ebitda_m", "ground_rent_m", "rent_adjusted_ebitda_m",
   "valuation_ebitda_m", "estimated_sale_value_m", "gross_debt_m", "cash_m",
   "equity_purchase_consideration_m", "new_acquisition_debt_m",
   "buyer_equity_contribution_m", "total_gross_debt_m",
-  "net_financing_cost_m", "additional_acquisition_interest_m")
+  "net_financing_cost_m", "additional_acquisition_interest_m",
+  "revenue_m", "net_income_m", "purchase_adjusted_pre_tax_income_m")
 acquisition_keys <- c("airport", "year_label", "scenario_id")
 acquisition_parameters <- c("purchase_multiple", "acquisition_debt_share",
   "acquisition_interest_rate")
@@ -892,11 +893,54 @@ acquisition <- acquisition |>
     acquisition_debt_share_pct = 100 * acquisition_debt_share,
     acquisition_interest_rate_pct = 100 * acquisition_interest_rate,
     post_purchase_gross_debt_to_ev_pct = 100 * actual_total_gross_debt_to_sale_value)
+# The acquisition model treats Canadian net income as pre-tax income,
+# consistent with the upstream harmonized Canadian financial panel (tax = 0).
+# Reuse the model's exact pre-tax baseline and verify against observed data.
+acquisition_observed <- full_financial |>
+  filter(country == "Canada", unit == "2025 CAD millions",
+    metric %in% c("total_revenue", "profit_before_tax")) |>
+  transmute(airport, year_label = if_else(period == "2023-2025", "2023-25", period),
+    passengers_m, metric, value) |>
+  pivot_wider(names_from = metric, values_from = value) |>
+  rename(observed_revenue_check_m = total_revenue,
+    observed_pretax_check_m = profit_before_tax)
+check_keys(acquisition_observed, c("airport", "year_label"),
+  "observed acquisition pre-tax baseline")
+if (nrow(acquisition_observed) != 20L)
+  stop("Incomplete observed acquisition pre-tax baseline.")
+acquisition <- acquisition |>
+  left_join(acquisition_observed, by = c("airport", "year_label")) |>
+  mutate(
+    observed_annual_pretax_profit_m = net_income_m / years_in_period,
+    post_acquisition_annual_pretax_profit_m =
+      purchase_adjusted_pre_tax_income_m / years_in_period,
+    annual_pretax_profit_change_m =
+      post_acquisition_annual_pretax_profit_m - observed_annual_pretax_profit_m,
+    observed_pretax_profit_per_pax = net_income_m * 1e6 / passengers,
+    post_acquisition_pretax_profit_per_pax =
+      purchase_adjusted_pre_tax_income_m * 1e6 / passengers,
+    pretax_profit_change_per_pax =
+      post_acquisition_pretax_profit_per_pax - observed_pretax_profit_per_pax,
+    observed_pretax_margin_pct = 100 * net_income_m / revenue_m,
+    post_acquisition_pretax_margin_pct =
+      100 * purchase_adjusted_pre_tax_income_m / revenue_m)
 acq_close <- function(a, b) {
   all(is.finite(a) & is.finite(b) &
     abs(a - b) <= 1e-7 * pmax(1, abs(a), abs(b)))
 }
 with(acquisition, {
+  if (!acq_close(net_income_m, observed_pretax_check_m) ||
+      !acq_close(revenue_m, observed_revenue_check_m) ||
+      !acq_close(passengers, passengers_m * 1e6) ||
+      !acq_close(purchase_adjusted_pre_tax_income_m,
+        net_income_m + ground_rent_m - additional_acquisition_interest_m) ||
+      !acq_close(annual_pretax_profit_change_m,
+        annual_ground_rent_saving_m - annual_additional_acquisition_interest_m) ||
+      !acq_close(pretax_profit_change_per_pax,
+        (ground_rent_m - additional_acquisition_interest_m) * 1e6 / passengers) ||
+      any(!is.finite(observed_pretax_margin_pct) |
+          !is.finite(post_acquisition_pretax_margin_pct) | revenue_m <= 0))
+    stop("Standalone acquisition pre-tax bridge or observed baseline checks failed.")
   if (!acq_close(valuation_ebitda_m,
         observed_annual_ebitda_m + annual_ground_rent_saving_m) ||
       !acq_close(estimated_sale_value_m, valuation_ebitda_m * purchase_multiple) ||
@@ -925,7 +969,15 @@ acquisition_fields <- c(
   total_gross_debt_m = "Post-acquisition gross debt",
   annual_existing_net_financing_cost_m = "Existing annual net financing costs",
   annual_additional_acquisition_interest_m = "Additional annual acquisition interest",
-  annual_combined_net_financing_cost_m = "Combined annual net financing costs")
+  annual_combined_net_financing_cost_m = "Combined annual net financing costs",
+  observed_annual_pretax_profit_m = "Observed annual pre-tax profit",
+  post_acquisition_annual_pretax_profit_m = "Post-acquisition annual pre-tax profit",
+  annual_pretax_profit_change_m = "Change in annual pre-tax profit",
+  observed_pretax_profit_per_pax = "Observed pre-tax profit per passenger",
+  post_acquisition_pretax_profit_per_pax = "Post-acquisition pre-tax profit per passenger",
+  pretax_profit_change_per_pax = "Change in pre-tax profit per passenger",
+  observed_pretax_margin_pct = "Observed pre-tax profit margin",
+  post_acquisition_pretax_margin_pct = "Post-acquisition pre-tax profit margin")
 acquisition_wide <- acquisition |>
   select(airport, year, period, year_label, years_in_period,
     scenario_id, scenario_name, purchase_multiple, acquisition_debt_share_pct,
@@ -935,7 +987,7 @@ acquisition_wide <- acquisition |>
 export(acquisition_wide, "06b_acquisition_financing_2023_2025.csv",
   "Standalone acquisition valuation and financing",
   "Acquisition model acquisition_scenarios.csv and scenario_assumptions.csv",
-  "All monetary amounts real 2025 CAD millions except additional_interest_per_pax (2025 CAD/passenger). Annual-equivalent EBITDA, rent and interest flows; pooled debt and cash are mean real stocks, not sums. EV = annual rent-adjusted EBITDA times multiple; equity consideration = EV less existing net debt. New debt share applies to equity consideration, not EV or total debt; existing debt remains. Rates and debt ratios are percentage points. BIG4 is the model aggregate. Illustrative financing packages, before profitability targets.")
+  "All monetary amounts real 2025 CAD millions except fields ending _per_pax (2025 CAD/passenger). Pre-tax profit is the model baseline (Canadian reported net income treated as pre-tax), reconciled to the observed financial panel. Post-acquisition pre-tax profit adds eliminated federal rent and subtracts new acquisition interest, before revenue increases, operating savings or corporate tax; margins use unchanged observed revenue. Pooled pre-tax flows are annualized, yields and margins are ratios of three-year sums. Annual-equivalent EBITDA, rent and interest flows; pooled debt and cash are mean real stocks, not sums. EV = annual rent-adjusted EBITDA times multiple; equity consideration = EV less existing net debt. New debt share applies to equity consideration, not EV or total debt; existing debt remains. Rates and debt ratios are percentage points. BIG4 is the model aggregate. Illustrative financing packages, before profitability targets.")
 acquisition_long <- acquisition_wide |>
   pivot_longer(all_of(c(names(acquisition_fields), "purchase_multiple",
     "acquisition_debt_share_pct", "acquisition_interest_rate_pct",
@@ -950,7 +1002,7 @@ acquisition_long <- acquisition_wide |>
     TRUE ~ unname(acquisition_fields[metric])),
     unit = case_when(metric == "purchase_multiple" ~ "multiple",
       grepl("_pct$", metric) ~ "percent",
-      metric == "additional_interest_per_pax" ~ "2025 CAD per passenger",
+      grepl("_per_pax$", metric) ~ "2025 CAD per passenger",
       TRUE ~ "2025 CAD millions"))
 check_keys(acquisition_long, c(acquisition_keys, "metric"), "standalone acquisition long")
 export(acquisition_long, "06c_acquisition_financing_long_2023_2025.csv",
