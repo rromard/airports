@@ -10,8 +10,8 @@
 #
 # Monetary comparisons are in 2025 CAD. Canadian amounts are adjusted using
 # Canadian CPI; ACCC supplementary amounts are already in 2024–25 AUD.
-# Australian amounts use the fixed 2025 CAD/AUD rate. Canada is reported by
-# calendar year and Australia by June-ending financial year.
+# Australian amounts use the fixed 2025 CAD/AUD rate. Canada and recent
+# Sydney use calendar years; BNE/MEL/PER use June-ending financial years.
 #
 # Outputs: annual aeronautical revenue growth, annual and pooled financial
 # comparison CSVs, source provenance, and a reusable financial audit RDS.
@@ -497,11 +497,7 @@ growth_summary <- aero_series |>
     .groups = 'drop'
   )
 
-# Retain 2023–2025 revenue observations for the detailed comparison.
-annual <- annual_all |>
-  filter(year %in% recent_years) |>
-  select(country, airport, year, period, variable,
-         amount_cad_2025_m, passengers, per_passenger_cad_2025)
+# The contemporary revenue panel is constructed after reading SCACH below.
 
 # ============================================================================
 # 6. OPERATING COSTS AND PROFITABILITY, 2023–2025
@@ -585,8 +581,7 @@ assert_unique(cost_groups_annual,
 
 # 6.2 Operating profit and net-income source data
 # ----------------------------------------------------------------
-# Use ACCC operating results for Sydney and SCACH consolidated results
-# for financing, pretax income, tax, and net income.
+# BNE/MEL/PER use ACCC regulatory accounts. Sydney uses SCACH throughout.
 required_reg <- c('ebitda', 'operating_profit', 'depreciation_amortisation',
                   'revenue', 'interest_financing_costs', 'profit_before_tax',
                   'income_tax_expense', 'net_profit_after_tax', 'abnormal_items',
@@ -597,11 +592,8 @@ if (!all(required_reg %in% names(reg_total))) {
 }
 
 # Read verified SCACH income-statement inputs.
-scach_path <- here('data', 'australia', 'regulatory_accounts', 'scach_income_verified_inputs_template.csv')
-
-preserved_scach_path <- here('preserved_data', 'scach_income_verified_inputs_template.csv')
-# Prefer the versioned source; keep the existing working path as a fallback.
-if (file.exists(preserved_scach_path)) scach_path <- preserved_scach_path
+scach_path <- here('preserved_data', 'scach_income_verified_inputs_template.csv')
+if (!file.exists(scach_path)) stop('Missing versioned SCACH source: ', scach_path)
 scach <- readr::read_csv(scach_path, show_col_types = FALSE) |>
   filter(airport == 'SYD', calendar_year %in% recent_years) |>
   mutate(year = as.integer(calendar_year))
@@ -678,13 +670,6 @@ if (any(abs(with(scach_reconciliation, finance_costs_adjusted - finance_income -
                  net_profit_after_tax_adjusted)) > 0.05)) {
   stop('Adjusted SCACH financing and profit bridge failed.')
 }
-
-scach_join <- scach_reconciliation |>
-  select(year, all_of(scach_require), all_of(scach_operating_fields), finance_costs_adjusted,
-         net_finance_costs_adjusted, profit_before_tax_adjusted,
-         net_profit_after_tax_adjusted, shareholder_payouts,
-         source_url, source_note, reporting_period) |>
-  rename_with(~ paste0('scach_', .x), -year)
 
 # Only the contemporary panel is substituted. annual_all and aero_series
 # retain the ACCC historical series, including Sydney's June-ending years.
@@ -957,6 +942,19 @@ passenger_check <- financial_source_annual |>
 if (anyNA(passenger_check$source_passengers) ||
     any(passenger_check$passengers != passenger_check$source_passengers))
   stop('Financial and contemporary passenger sources disagree.')
+# Check the denominators carried by every actual monetary source stream.
+for (source_panel in list(revenue_source_annual, cost_groups_annual)) {
+  source_passenger_check <- source_panel |>
+    select(country, airport, year, passengers) |>
+    distinct() |>
+    left_join(contemporary_passengers |> select(country, airport, year,
+      matched_passengers = passengers), by = c('country', 'airport', 'year'))
+  if (any(!is.finite(source_passenger_check$passengers)) ||
+      anyNA(source_passenger_check$matched_passengers) ||
+      any(source_passenger_check$passengers != source_passenger_check$matched_passengers))
+    stop('Contemporary revenue/cost source denominators disagree.')
+}
+
 # Check reported net income against pretax income less accounting tax expense.
 tax_bridge <- financial_source_annual |>
   filter(!is.na(profit_before_tax),
@@ -1442,14 +1440,7 @@ scach_sources <- scach |>
     scach_url = source_url
   )
 
-# Sydney measures sourced from SCACH.
-scach_vars <- c(
-  'interest_financing_costs',
-  'profit_before_tax',
-  'accounting_income_tax_expense',
-  'net_income',
-  'net_profit_margin_pct', 'shareholder_payouts'
-)
+# All contemporary Sydney financial measures use SCACH.
 
 # Attach a source URL and worksheet to each annual comparison measure.
 # 9.5 Match each annual measure to its source
