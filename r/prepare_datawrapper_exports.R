@@ -179,6 +179,11 @@ export(policy, "00d_policy_context.csv",
 # financial comparisons (Canada CY, Australia June-ending FY).
 # Canadian US transborder traffic is international. BITRE is retained only
 # for national Australian context, not for the four individual airports.
+comparison_audit <- readRDS(file.path(base_comparison,
+  "financial_comparison_audit_2023_2025.rds"))
+if (!all(c("contemporary_passengers", "scach_reconciliation", "scach_cpi",
+           "financial_source_annual") %in% names(comparison_audit)))
+  stop("Rebuild per_unit_comparison.R before exporting contemporary data.")
 traffic_years <- 2024:2025
 traffic_geos <- tibble::tribble(
   ~geo, ~airport,
@@ -259,6 +264,15 @@ accc_traffic_check <- aus_traffic |>
 if (any(!is.finite(accc_traffic_check$model_passengers)) ||
     any(abs(accc_traffic_check$reported_total - accc_traffic_check$model_passengers) > 1))
   stop("ACCC traffic totals differ from financial model passenger counts.")
+# Substitute Sydney CY traffic from the exact source used in the financial
+# audit; retain the ACCC source checks above for the historical FY series.
+scach_traffic <- comparison_audit$scach_reconciliation |>
+  filter(year %in% traffic_years) |>
+  transmute(airport, year, country = "Australia",
+    reported_total = passengers, domestic_passengers, international_passengers,
+    transborder_passengers = NA_real_, other_international_passengers = NA_real_,
+    source_domestic = passenger_source_url, source_international = passenger_source_url)
+aus_traffic <- aus_traffic |> filter(airport != "SYD") |> bind_rows(scach_traffic)
 # Preserve BITRE national rows for the later country-context item.
 aus_national_traffic <- input_csv(file.path(context_dir,
   "australia_airport_traffic_2024_2025.csv")) |>
@@ -272,17 +286,30 @@ traffic_totals <- function(d) {
     mutate(total_passengers = domestic_passengers + international_passengers,
       domestic_share_pct = 100 * domestic_passengers / total_passengers,
       international_share_pct = 100 * international_passengers / total_passengers,
-      reporting_basis = if_else(country == "Australia" & airport != "NATIONAL",
-        paste("Financial year ending June", year), paste("Calendar year", year)),
+      reporting_basis = case_when(
+        country == "Australia" & airport == "SYD" ~ paste("Calendar year", year, "(SCACH)"),
+        country == "Australia" & airport == "BIG4" ~ paste("Mixed June FY / CY", year),
+        country == "Australia" & airport != "NATIONAL" ~ paste("Financial year ending June", year),
+        TRUE ~ paste("Calendar year", year)),
       domestic_passengers_m = domestic_passengers / 1e6,
       international_passengers_m = international_passengers / 1e6,
       total_passengers_m = total_passengers / 1e6)
 }
 airport_traffic <- traffic_context |> filter(airport != "NATIONAL")
+model_traffic_check <- airport_traffic |>
+  left_join(comparison_audit$contemporary_passengers |>
+    select(country, airport, year, model_passengers = passengers),
+    by = c("country", "airport", "year"))
+if (nrow(model_traffic_check) != 16L ||
+    any(!is.finite(model_traffic_check$model_passengers)) ||
+    any(abs(model_traffic_check$reported_total - model_traffic_check$model_passengers) > 1))
+  stop("Contemporary traffic context differs from financial passenger counts.")
 airport_traffic_big4 <- airport_traffic |>
-  group_by(country, year, source_domestic, source_international) |>
+  group_by(country, year) |>
   summarise(across(c(domestic_passengers, international_passengers,
     transborder_passengers, other_international_passengers, reported_total), sum),
+    source_domestic = paste(unique(source_domestic), collapse = "; "),
+    source_international = paste(unique(source_international), collapse = "; "),
     .groups = "drop") |>
   mutate(airport = "BIG4")
 airport_traffic <- bind_rows(airport_traffic, airport_traffic_big4) |>
@@ -297,8 +324,8 @@ if (nrow(airport_traffic) != 20L ||
   stop("Incomplete airport traffic context.")
 export(airport_traffic, "01b_airport_traffic_context_2024_2025.csv",
   "Airport traffic size and composition",
-  "Statistics Canada 23-10-0253-01; ACCC 2024-25 supplementary database, parsed airport_financial",
-  "Canada calendar year; Australia financial year ending June, matching the financial comparison. Counts and millions; shares in percent. Canadian international includes US transborder. ACCC reported domestic and international totals are used without adding overlapping regional or other subcategories. BIG4 shares use ratios of sums. ACCC source counts reconcile to the financial model passenger CSV; no changes to model denominators.")
+  "Statistics Canada 23-10-0253-01; ACCC 2024-25 supplementary database; SCACH calendar-year traffic",
+  "Canada and Sydney calendar year (Sydney rounded to nearest 100,000); BNE/MEL/PER June-ending FY. Australian BIG4 combines those periods. Counts and millions; shares in percent. Canadian international includes US transborder. ACCC sectors are used without adding overlapping subcategories. All contemporary totals reconcile to the financial model passenger counts.")
 
 # NATIONAL TRAFFIC AND ECONOMIC CONTEXT.
 # BITRE domestic scheduled airport movements (Table 5) exclude charters.
@@ -367,8 +394,8 @@ scale <- annual_abs |>
   mutate(passengers_m = total_revenue / revenue_per_passenger,
          aeronautical_share_pct = 100 * total_aero / total_revenue,
          ebitda_margin_pct = 100 * ebitda / total_revenue,
-         reporting_basis = if_else(country == "Australia",
-           "Financial year ending June 2025", "Calendar year 2025")) |>
+         reporting_basis = case_when(airport == "SYD" ~ "Calendar year 2025 (SCACH)",
+            country == "Australia" ~ "Financial year ending June 2025", TRUE ~ "Calendar year 2025")) |>
   arrange(country, airport)
 # The two per-passenger and aggregate files both express CAD; ratio is
 # passengers / 1e6, i.e., millions of passengers.
@@ -377,7 +404,7 @@ if (nrow(scale) != 8L || any(!is.finite(scale$passengers_m)) ||
   stop("Invalid 2025 comparison scale.", call. = FALSE)
 export(scale, "01_airport_scale_2025.csv", "Canada–Australia comparability",
   "Comparison annual absolute and per-passenger CSVs",
-  "Eight airports; passenger volume millions. Australian fiscal years end June; Canadian years end December. Not proof of identical airport markets.")
+  "Eight airports; passenger volume millions. BNE/MEL/PER fiscal years end June; Canada and Sydney end December. Not proof of identical airport markets.")
 
 # BIG4 country aggregates: sum levels first, then recompute weighted
 # shares/margins. Do not add percentage margins or average airport-level shares.
@@ -398,7 +425,7 @@ scale_big4 <- scale |>
     ebitda_margin_pct = 100 * ebitda / total_revenue,
     revenue_per_passenger = total_revenue / passengers_m,
     reporting_basis = if_else(country == "Australia",
-      "Financial year ending June 2025", "Calendar year 2025"))
+       "Mixed June FY / CY 2025 (SCACH)", "Calendar year 2025"))
 if (nrow(scale_big4) != 2L || any(!is.finite(scale_big4$passengers_m)))
   stop("Invalid BIG4 comparison aggregate.", call. = FALSE)
 export(scale_big4, "01b_big4_aggregate_2025.csv",
@@ -434,6 +461,7 @@ financial_measures <- c(
   ebitda = "EBITDA",
   ebit = "EBIT",
   interest_financing_costs = "Financing costs",
+  other_income_expenses_net = "Other income and expenses (net)",
   profit_before_tax = "Pre-tax profit",
   net_income = "Net income",
   cash_capital_investment = "Cash capital investment",
@@ -449,7 +477,7 @@ financial <- annual_abs |>
   mutate(metric_label = unname(financial_measures[metric]),
     unit = if_else(grepl("_pct$", metric), "percent", "2025 CAD millions"),
     reporting_basis = case_when(
-      airport == "SYD" & metric %in% c("interest_financing_costs", "profit_before_tax", "net_income", "net_profit_margin_pct", "cash_capital_investment", "shareholder_payouts") ~ "CY 2025 (SCACH)",
+      airport == "SYD" ~ "CY 2025 (SCACH)",
       country == "Australia" ~ "FY 2024-25", TRUE ~ "CY 2025")) |>
   select(country, airport, year, reporting_basis, metric,
     metric_label, value, unit)
@@ -468,16 +496,16 @@ parking_annual <- annual_abs |>
       parking_transport_revenue_per_pax = parking_transport_revenue),
     by = annual_keys) |>
   mutate(
-    reporting_basis = if_else(country == "Australia",
-      sprintf("FY %d-%02d", year - 1L, year %% 100L),
-      paste("CY", year)),
+    reporting_basis = case_when(airport == "SYD" ~ paste("CY", year, "(SCACH)"),
+      country == "Australia" ~ sprintf("FY %d-%02d", year - 1L, year %% 100L),
+      TRUE ~ paste("CY", year)),
     parking_transport_revenue_per_est_enplaned_pax =
       parking_transport_revenue_per_pax / parking_enplanement_share)
 check_keys(parking_annual, annual_keys, "annual parking yield")
 export(parking_annual, "03b_parking_yield_2023_2025.csv",
   "Current Canadian–Australian airport parking and ground transportation",
   "Comparison annual absolute and per-passenger CSVs",
-  "2025 CAD millions and CAD per total or estimated enplaned passenger. Enplanements estimated as 50% of total passengers; this is a revenue yield, not a price paid by parking customers. Do not add enplanement-based yields to total-passenger revenue components. Australia June-ending FY; Canada CY.")
+  "2025 CAD millions and CAD per total or estimated enplaned passenger. Enplanements estimated as 50% of total passengers; this is a revenue yield, not a price paid by parking customers. Do not add enplanement-based yields to total-passenger revenue components. BNE/MEL/PER June-ending FY; Canada and Sydney CY.")
 
 parking_yield <- parking_annual |>
   filter(year == 2025L) |>
@@ -490,7 +518,7 @@ financial <- bind_rows(financial, parking_yield)
 export(financial, "03_current_financials_2025.csv",
   "Current Canadian–Australian airport financials",
   "Annual absolute and per-passenger financial comparison CSVs",
-  "Operating margin is EBITDA/revenue, not after-capital net profit. Sydney net profit is adjusted for RPS remuneration and redemption loss; payouts include ordinary dividends and cash RPS interest. BNE/MEL/PER payouts are ACCC reported dividends. Cash investment is observed cash outlay, not depreciation; intangible assets may be bundled in Canadian inputs. Australia FY versus Canada CY; Sydney below-operating measures and cash investment use SCACH CY. Parking/ground transportation yield uses estimated enplanements (50% of total passengers), following GTAA 2024 Annual Report p. 45; not a parking price or observed enplanement count.")
+  "Operating margin is EBITDA/revenue, not after-capital net profit. Sydney net profit is adjusted for RPS remuneration and redemption loss; payouts include ordinary dividends and cash RPS interest. BNE/MEL/PER payouts are ACCC reported dividends. Cash investment is observed cash outlay, not depreciation; intangible assets may be bundled in Canadian inputs. BNE/MEL/PER FY; Canada and Sydney CY. All contemporary Sydney measures use SCACH. Parking/ground transportation yield uses estimated enplanements (50% of total passengers), following GTAA 2024 Annual Report p. 45; not a parking price or observed enplanement count.")
 
 # 3b. FULL HARMONIZED FINANCIAL PANEL: annual and pooled, airport and BIG4.
 # Preserve the existing 2025 export for compatibility. Use the upstream
@@ -539,8 +567,6 @@ if (!setequal(annual_abs$year, 2023:2025) ||
     any(table(annual_abs$airport) != 3L))
   stop("Unexpected annual or pooled financial coverage.")
 
-comparison_audit <- readRDS(file.path(base_comparison,
-  "financial_comparison_audit_2023_2025.rds"))
 financial_basis <- comparison_audit$financial_source_annual
 require_columns(financial_basis, c(annual_keys, "passengers",
   "adjustment_to_2025", "fx_cad_per_unit", "ebitda_ebit_revenue_basis",
@@ -625,11 +651,8 @@ financial_panel <- function(a, p, basis, keys, period_label) {
       metric_label = unname(full_financial_measures[metric]),
       reporting_basis = case_when(
         country == "Canada" ~ "CY",
-        airport %in% c("SYD", "BIG4") & metric %in% c(
-          "interest_financing_costs", "profit_before_tax",
-          "accounting_income_tax_expense", "net_income", "net_profit_margin_pct",
-          "cash_capital_investment", "shareholder_payouts") ~
-          if_else(airport == "SYD", "CY (SCACH)", "Mixed FY / CY (SCACH)"),
+        airport == "SYD" ~ "CY (SCACH)",
+        airport == "BIG4" ~ "Mixed FY / CY (SCACH)",
         TRUE ~ "June-ending FY")) |>
     select(country, airport, aggregation, period, year, reporting_basis,
       passengers_m, metric, metric_label, unit, value)
@@ -644,10 +667,19 @@ check_keys(full_financial, c("country", "airport", "period", "metric", "unit"),
 if (nrow(full_financial) != 40L * (2L * length(money_metrics) +
     length(margin_metrics) + 1L))
   stop("Unexpected full financial presentation panel size.")
+presentation_pretax <- full_financial |>
+  filter(unit == "2025 CAD millions", metric %in% c("ebit",
+    "interest_financing_costs", "other_income_expenses_net", "profit_before_tax")) |>
+  select(country, airport, period, metric, value) |>
+  pivot_wider(names_from = metric, values_from = value) |>
+  mutate(residual = profit_before_tax - (ebit - interest_financing_costs + other_income_expenses_net))
+if (nrow(presentation_pretax) != 40L ||
+    any(!is.finite(presentation_pretax$residual) | abs(presentation_pretax$residual) > 1))
+  stop("Presentation pre-tax bridge failed for annual or pooled airports/BIG4.")
 export(full_financial, "03c_full_financials_2023_2025.csv",
   "Current Canadian–Australian airport financials, full annual and pooled panel",
   "Annual and pooled comparison CSVs; financial comparison audit passenger and margin bases",
-  "All published harmonized metrics; monetary amounts in real 2025 CAD. Annual and pooled 2023-2025; pooled absolute figures are three-year sums, not annual averages. BIG4 yields and margins are ratios of sums, not means of airport ratios. Missing or inapplicable inputs remain NA, including country totals without complete coverage. Sydney below-operating results and cash investment use SCACH CY; Australian BIG4 combines June FY and Sydney CY for those metrics. Per-passenger rates use the upstream passenger series, including Sydney FY passenger counts for SCACH CY metrics. Parking alternative yield estimates enplanements as half of total passengers and must not be stacked with total-passenger rates. Canadian non-operating adjustments = contributions + partnership income + insurance recoveries - pension remeasurement loss - disposal loss. Australian adjustments remain unavailable pending reconciliation; existing abnormal items are unchanged. Metrics overlap; not all are additive. Profitability is whole-airport, not segment-specific.")
+  "All published harmonized metrics; monetary amounts in real 2025 CAD. Annual and pooled 2023-2025; pooled absolute figures are three-year sums, not annual averages. BIG4 yields and margins are ratios of sums, not means of airport ratios. Missing or inapplicable inputs remain NA, including country totals without complete coverage. All contemporary Sydney results use SCACH CY with rounded CY passenger counts; Australian BIG4 combines June FY and Sydney CY. Per-passenger rates use matching upstream passenger counts. Parking alternative yield estimates enplanements as half of total passengers and must not be stacked with total-passenger rates. Canadian non-operating adjustments = contributions + partnership income + insurance recoveries - pension remeasurement loss - disposal loss. Other income and expenses (net) is the harmonized signed bridge: Canadian non-operating adjustments, ACCC abnormal items for BNE/MEL, zero for Perth and Sydney. Retained source-specific measures overlap with this bridge and must not be added to it. Metrics overlap; not all are additive. Profitability is whole-airport, not segment-specific.")
 
 # 4. AUSTRALIAN AIRPORT TAXATION: two already assembled source panels.
 # Preserve nominal AUD accounting/tax diagnostics and append real CAD amounts
