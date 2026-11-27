@@ -731,8 +731,8 @@ assert_unique(calc_pooled, c('country', 'airport', 'measure'),
 
 # The annual profitability bridge shows the numbers actually used by the
 # comparison: source EBITDA, D&A, and impairment -> operating EBIT. PBT,
-# income-tax expense, and net income are carried from reported/assumed
-# figures; they are NOT silently treated as reconstructed earnings.
+# tax and net income retain their source values; calculate a separate PBT
+# from EBIT, financing costs and signed adjustments for reconciliation.
 profit_source <- audit$financial_source_annual |>
   filter(year %in% 2023:2025) |>
   arrange(country, airport, year)
@@ -1788,7 +1788,7 @@ recon_pooled <- recon_pooled_source |>
     `Per-passenger status` = NA_character_
   )
 
-# Four checks per annual airport-year: the separately computed EBIT bridge
+# Five checks per annual airport-year: EBIT and pre-tax income bridges
 # plus the three margins. Each lookup column always selects a named column
 # from the original (wide) AnnualProfitMargins Excel table.
 recon_profit_annual <- annual_abs |>
@@ -1808,7 +1808,9 @@ recon_profit_annual <- annual_abs |>
     `R net margin` = net_profit_margin_pct,
     `Excel net margin` = NA_real_,
     `Net margin difference` = NA_real_,
-    `Net margin status` = NA_character_
+    `Net margin status` = NA_character_,
+    `R pre-tax profit` = profit_before_tax, `Excel pre-tax profit` = NA_real_,
+    `Pre-tax difference` = NA_real_, `Pre-tax status` = NA_character_
   )
 
 recon_profit_pooled <- pooled_abs |>
@@ -1838,9 +1840,9 @@ production_add_worksheet(recon_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, recon_sheet,
                     'Reconciliation | Excel calculations against R results',
                     startRow = 1L, startCol = 1L)
-openxlsx::mergeCells(wb, recon_sheet, rows = 1L, cols = 1:19)
+openxlsx::mergeCells(wb, recon_sheet, rows = 1L, cols = 1:23)
 openxlsx::addStyle(wb, recon_sheet, style_title, rows = 1L,
-                   cols = 1:19, gridExpand = TRUE)
+                   cols = 1:23, gridExpand = TRUE)
 openxlsx::setRowHeights(wb, recon_sheet, rows = 1L, heights = 34)
 openxlsx::writeData(wb, recon_sheet, 'Tolerance',
                     startRow = 3L, startCol = 1L)
@@ -1852,15 +1854,15 @@ openxlsx::addStyle(wb, recon_sheet,
 openxlsx::writeData(wb, recon_sheet,
   'PASS = within tolerance; FAIL = numeric difference; MISSING MISMATCH = only one side has a value; BOTH MISSING = both blank.',
   startRow = 4L, startCol = 1L)
-openxlsx::mergeCells(wb, recon_sheet, rows = 4L, cols = 1:19)
+openxlsx::mergeCells(wb, recon_sheet, rows = 4L, cols = 1:23)
 openxlsx::addStyle(wb, recon_sheet, style_subtitle,
-                   rows = 4L, cols = 1:19, gridExpand = TRUE)
+                   rows = 4L, cols = 1:23, gridExpand = TRUE)
 openxlsx::writeData(wb, recon_sheet,
   'The R values are fixed benchmarks; the Excel values are live lookups. Open and recalculate in Excel to populate these results.',
   startRow = 5L, startCol = 1L)
-openxlsx::mergeCells(wb, recon_sheet, rows = 5L, cols = 1:19)
+openxlsx::mergeCells(wb, recon_sheet, rows = 5L, cols = 1:23)
 openxlsx::addStyle(wb, recon_sheet, style_subtitle,
-                   rows = 5L, cols = 1:19, gridExpand = TRUE)
+                   rows = 5L, cols = 1:23, gridExpand = TRUE)
 openxlsx::setRowHeights(wb, recon_sheet, rows = 4:5, heights = 24)
 
 # Tables are deliberately separate, keeping their formulas uniform and
@@ -1906,7 +1908,7 @@ add_recon_section('annual', '1. Annual financial amounts | 2025 CAD millions and
                   recon_annual, 'ReconAnnualAmounts')
 add_recon_section('pooled', '2. Three-year pooled amounts | 2025 CAD millions and CAD per passenger',
                   recon_pooled, 'ReconPooledAmounts')
-add_recon_section('profit_annual', '3. Annual operating EBIT (2025 CAD millions) and margins (%)',
+add_recon_section('profit_annual', '3. Annual EBIT, pre-tax profit (2025 CAD millions) and margins (%)',
                   recon_profit_annual, 'ReconAnnualProfit')
 add_recon_section('profit_pooled', '4. Three-year pooled margins (%)',
                   recon_profit_pooled, 'ReconPooledProfit')
@@ -2037,7 +2039,9 @@ profit_metrics <- list(
   c('R EBIT margin', 'Excel EBIT margin',
     'EBIT margin difference', 'EBIT margin status', 'EBIT margin (%)'),
   c('R net margin', 'Excel net margin',
-    'Net margin difference', 'Net margin status', 'Net profit margin (%)')
+    'Net margin difference', 'Net margin status', 'Net profit margin (%)'),
+  c('R pre-tax profit', 'Excel pre-tax profit', 'Pre-tax difference',
+    'Pre-tax status', 'Calculated pre-tax profit')
 )
 for (metric in profit_metrics) {
   write_recon_lookup(profit_sec, metric[[2]],
@@ -2065,7 +2069,7 @@ status_ranges <- c(
   sprintf('%s%d:%s%d', 'G', pooled_sec$start, 'G', pooled_sec$end),
   sprintf('%s%d:%s%d', 'K', pooled_sec$start, 'K', pooled_sec$end),
   vapply(c('EBIT status', 'EBITDA margin status',
-           'EBIT margin status', 'Net margin status'), function(col) {
+           'EBIT margin status', 'Net margin status', 'Pre-tax status'), function(col) {
     ltr <- openxlsx::int2col(match(col, profit_sec$columns))
     sprintf('%s%d:%s%d', ltr, profit_sec$start, ltr, profit_sec$end)
   }, character(1)),
@@ -2084,12 +2088,12 @@ for (i in seq_along(status_summary)) {
 }
 # One numeric tolerance is used for all comparisons in their display units.
 # The expected total includes both absolute and per-passenger financial
-# checks, one EBIT bridge and three annual margins, and pooled margins.
+# checks, two income statement bridges and three annual margins, and pooled margins.
 expected_checks <- 2L * (nrow(recon_annual) + nrow(recon_pooled)) +
-  4L * nrow(recon_profit_annual) + nrow(recon_profit_pooled)
+  5L * nrow(recon_profit_annual) + nrow(recon_profit_pooled)
 if (expected_checks != length(amount_vars) * (nrow(annual_abs) +
                                                 nrow(pooled_abs)) * 2L +
-                       4L * nrow(annual_abs) +
+                       5L * nrow(annual_abs) +
                        length(margin_vars) * nrow(pooled_abs)) {
   stop('Unexpected number of reconciliation cells.')
 }
@@ -2102,9 +2106,9 @@ openxlsx::writeData(wb, recon_sheet, expected_checks,
 openxlsx::setColWidths(wb, recon_sheet, cols = 1:2, widths = 15)
 openxlsx::setColWidths(wb, recon_sheet, cols = 3, widths = 17)
 openxlsx::setColWidths(wb, recon_sheet, cols = 4, widths = 32)
-openxlsx::setColWidths(wb, recon_sheet, cols = 5:19, widths = 18)
+openxlsx::setColWidths(wb, recon_sheet, cols = 5:23, widths = 18)
 openxlsx::setColWidths(wb, recon_sheet,
-                       cols = c(8, 12, 15, 19), widths = 22)
+                       cols = c(8, 12, 15, 19, 23), widths = 22)
 openxlsx::freezePane(wb, recon_sheet,
                      firstActiveRow = 7L, firstActiveCol = 3L)
 
