@@ -1430,6 +1430,57 @@ if (file.exists(quality_path)) {
     "ACCC supplementary database airport_quality extract",
     "Optional: run parse_accc_airports.R. Choose a consistent overall-quality measure before joining quality ratings to revenue or drawing averages.")
 }
+# 9B. OPTIONAL PUBLISHED QUALITY: independent of the supplementary RDS.
+# Import only the validated cache here; the upstream stage handles extraction.
+quality_import_env <- new.env(parent = globalenv())
+quality_import_env$quality_cache_only <- TRUE
+sys.source(file.path(root, "r", "import_accc_quality.R"),
+  envir = quality_import_env)
+published_quality <- quality_import_env$quality_accc
+if (!is.null(published_quality)) {
+  published_quality <- published_quality |>
+    rename(financial_year = fyear)
+  check_keys(published_quality, c("airport", "metric", "year"),
+    "published ACCC quality")
+  export(published_quality, "10e_australia_published_quality_long.csv",
+    "Published ACCC airport quality ratings",
+    "ACCC 2020–21 Figure 4.2 and 2024–25 Figures 3.5–3.7, vector extraction",
+    "171 observed ratings; 12 printed 2024–25 labels take precedence. Other values are PDF-vector estimates rounded to two decimals. Geometry and validation errors retained. Aeronautical and overall ratings differ in scope; no splicing, imputation or causal inference.")
+  published_specs <- tibble::tribble(
+    ~metric, ~file, ~theme, ~source, ~interpretation,
+    "aeronautical_quality", "10f_australia_aeronautical_quality_1998_2019.csv",
+    "Published aeronautical service quality",
+    "ACCC 2020–21 report, Figure 4.2, p. 58",
+    "FY ending 1998–2019; Sydney starts 1999. Composite of survey and objective aeronautical measures. Digitized estimates; do not splice with overall quality.",
+    "overall_quality", "10g_australia_overall_quality_2016_2025.csv",
+    "Published overall airport quality",
+    "ACCC 2024–25 report, Figure 3.5, p. 23",
+    "Overall composite includes aeronautical, parking and landside services; not identical to historical aeronautical quality. FY ending 2020–2022 explicitly missing.",
+    "passenger_quality", "10h_australia_passenger_quality_2016_2025.csv",
+    "Published passenger survey ratings",
+    "ACCC 2024–25 report, Figure 3.6, p. 25",
+    "Official passenger aggregate, not the analyst's matched survey panel. FY ending 2020–2022 explicitly missing.",
+    "airline_quality", "10i_australia_airline_quality_2016_2025.csv",
+    "Published airline survey ratings",
+    "ACCC 2024–25 report, Figure 3.7, p. 27",
+    "Official airline aggregate, not the analyst's matched survey panel. FY ending 2020–2022 explicitly missing."
+  )
+  for (i in seq_len(nrow(published_specs))) {
+    spec <- published_specs[i, ]
+    chart <- quality_import_env$accc_published_quality_wide(
+      quality_import_env$quality_accc, spec$metric)
+    export(chart, spec$file, spec$theme, spec$source,
+      paste(spec$interpretation,
+        "Scores on a 1–5 scale; published 2025 labels where available;",
+        "other observations digitized from PDF vectors.",
+        "Blank cells are missing: do not connect gaps in line charts."))
+  }
+} else {
+  pending("Published ACCC quality ratings",
+    "ACCC 2020–21 and 2024–25 monitoring reports",
+    "Optional: place the two source PDFs in data/australia and run r/import_accc_quality.R (or enable run_published_quality in run_pipeline.R). Existing supplementary survey exports are independent.")
+}
+
 pending("Canada–Australia comparison validation",
   "Statistics Canada / BITRE passenger throughput; airport annual reports",
   "Current output provides traffic scale and revenue mix. Additional traffic mix (international, domestic, transfers), cargo, catchment and airline market structure require separately sourced harmonized definitions.")

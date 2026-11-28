@@ -183,3 +183,56 @@ or the revenue total to its component rows. Australian payout benchmarks are
 observed amounts, not estimates of future Canadian shareholder payouts.
 
 The annual and pooled tax presentation exports use the same column names as the analytical CSVs. They include `reported_ebt` and `reported_tax_expense` so the reported accounting rate can be reconstructed directly. `adjusted_ebt_less_taxable_income` uses adjusted profit; `reported_ebt_less_taxable_income` remains available in the underlying data. Ratios use decimal proportions; amounts are nominal AUD. `expected_tax_less_cash_tax` uses `cash_tax_including_assumptions` (zero only under the Sydney scenario), not necessarily observed payments.
+
+## Published ACCC quality ratings (separate from the supplementary series)
+
+Download the original PDF editions (not printed or re-exported copies) to the
+ignored local input directory with these filenames:
+
+| Local path | Source |
+| --- | --- |
+| `data/australia/accc_monitor_2021.pdf` | [2020–21 monitoring report](https://www.accc.gov.au/system/files/22-05RPT_Airport%20Monitoring%20Report_D06.pdf), Figure 4.2 |
+| `data/australia/accc_monitor_2025.pdf` | [2024–25 monitoring report](https://www.accc.gov.au/system/files/airport-monitoring-report-2024-25.pdf), Figures 3.5–3.7 |
+
+Install Python and PyMuPDF in the Python environment used by R:
+`python -m pip install pymupdf==1.26.7` (tested version). Set
+`ACCC_QUALITY_PYTHON` to the executable path if needed. The independent stage
+runs by default in `r/run_pipeline.R` (`run_published_quality <- TRUE`).
+It reuses the validated `output/accc_quality_vector_ratings.csv` cache and only
+needs Python/PDFs on first extraction or explicit refresh. If neither cache nor
+both PDFs are present, the optional stage skips; explicit refresh fails on
+missing inputs. To run only this stage:
+
+```r
+refresh_published_quality <- FALSE # TRUE to force extraction
+source(here::here("r", "import_accc_quality.R"))
+```
+
+Then run the existing presentation exporter. It reads the cache independently
+of the supplementary RDS and does not invoke Python. If no cache exists, it
+records a pending item in the catalog. Existing 10/10b/10c/10d exports are
+unchanged. New outputs under `output/presentation_data/`:
+
+| File | Coverage / use |
+| --- | --- |
+| `10e_australia_published_quality_long.csv` | 171 observations, all four measures, source coordinates and validation |
+| `10f_australia_aeronautical_quality_1998_2019.csv` | Historical aeronautical composite; four airport columns (Sydney starts 1999) |
+| `10g_australia_overall_quality_2016_2025.csv` | Overall composite including parking and landside |
+| `10h_australia_passenger_quality_2016_2025.csv` | Official passenger survey aggregate |
+| `10i_australia_airline_quality_2016_2025.csv` | Official airline survey aggregate |
+
+For Datawrapper, use the wide tables for line charts, `year` as the x-axis,
+airport columns as series, and rating units of 1–5. FY ending 2020–2022 are
+explicit blank rows in all three recent tables; turn off connecting missing
+values. Sydney's 1998 rating is also blank. No cross-airport mean is supplied.
+Never splice the historical aeronautical composite with the overall composite:
+the scope and overlapping values differ. For the published survey trends,
+prefer these official aggregates to the analyst's matched-question averages
+when the shorter coverage is sufficient.
+
+The extractor is chart-specific and validates the expected geometry and
+coverage. The 12 printed 2024–25 labels replace the vector-derived estimates
+in the main rating; all other ratings are rounded vector estimates, not exact
+source data. Tested maximum label discrepancy: 0.0156 rating points. The R
+import checks the full 171 airport/metric/year keys, rating bounds, provenance,
+and label consistency. Source PDFs and generated data remain untracked.

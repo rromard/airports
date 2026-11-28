@@ -16,6 +16,8 @@
 rebuild_australian_sources <- FALSE
 refresh_australian_tax    <- TRUE
 run_presentation_exports  <- TRUE
+run_published_quality     <- TRUE
+refresh_published_quality <- FALSE
 refresh_canadian_sources  <- TRUE
 run_financial_comparison <- TRUE
 run_acquisition_model    <- TRUE
@@ -107,6 +109,14 @@ if (rebuild_australian_sources) {
          '\nSet rebuild_australian_sources = TRUE if raw files are present.',
          call. = FALSE)
   }
+}
+
+# ---- 1A. PUBLISHED ACCC QUALITY (OPTIONAL) --------------------------------
+# Independent of the supplementary parser; reuse the validated CSV when present.
+# Missing PDFs/cache do not block the existing pipeline unless refresh requested.
+if (run_published_quality) {
+  run_stage('Import published ACCC quality ratings', 'import_accc_quality.R',
+    bindings = list(refresh_published_quality = refresh_published_quality))
 }
 
 # ---- 1B. AUSTRALIAN TAXATION (OPTIONAL) -----------------------------------
