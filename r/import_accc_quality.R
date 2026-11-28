@@ -90,7 +90,7 @@ accc_published_quality_wide <- function(q, measure) {
 
 load_accc_published_quality <- function(root = here::here(), refresh = FALSE,
                                         cache_only = FALSE) {
-  input_dir <- file.path(root, "data", "australia")
+  input_dir <- file.path(root, "preserved_data")
   output_dir <- file.path(root, "output")
   cache <- file.path(output_dir, "accc_quality_vector_ratings.csv")
   pdfs <- file.path(input_dir, c("accc_monitor_2021.pdf", "accc_monitor_2025.pdf"))
@@ -105,7 +105,7 @@ load_accc_published_quality <- function(root = here::here(), refresh = FALSE,
     msg <- paste("Published ACCC quality source PDFs missing:",
       paste(pdfs[!file.exists(pdfs)], collapse = ", "))
     if (refresh) stop(msg, call. = FALSE)
-    message(msg, "; skipping optional quality extraction.")
+    warning(msg, "; skipping optional quality extraction.", call. = FALSE)
     return(NULL)
   }
 
