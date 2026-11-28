@@ -191,8 +191,8 @@ ignored local input directory with these filenames:
 
 | Local path | Source |
 | --- | --- |
-| `data/australia/accc_monitor_2021.pdf` | [2020–21 monitoring report](https://www.accc.gov.au/system/files/22-05RPT_Airport%20Monitoring%20Report_D06.pdf), Figure 4.2 |
-| `data/australia/accc_monitor_2025.pdf` | [2024–25 monitoring report](https://www.accc.gov.au/system/files/airport-monitoring-report-2024-25.pdf), Figures 3.5–3.7 |
+| `preserved_data/accc_monitor_2021.pdf` | [2020–21 monitoring report](https://www.accc.gov.au/system/files/22-05RPT_Airport%20Monitoring%20Report_D06.pdf), Figure 4.2 |
+| `preserved_data/accc_monitor_2025.pdf` | [2024–25 monitoring report](https://www.accc.gov.au/system/files/airport-monitoring-report-2024-25.pdf), Figures 3.5–3.7 |
 
 Install Python and PyMuPDF in the Python environment used by R:
 `python -m pip install pymupdf==1.26.7` (tested version). Set
