@@ -1478,7 +1478,7 @@ if (!is.null(published_quality)) {
 } else {
   pending("Published ACCC quality ratings",
     "ACCC 2020–21 and 2024–25 monitoring reports",
-    "Optional: place the two source PDFs in data/australia and run r/import_accc_quality.R (or enable run_published_quality in run_pipeline.R). Existing supplementary survey exports are independent.")
+    "Optional: place the two source PDFs in preserved_data and run r/import_accc_quality.R (or enable run_published_quality in run_pipeline.R). Existing supplementary survey exports are independent.")
 }
 
 pending("Canada–Australia comparison validation",
