@@ -359,7 +359,9 @@ bridge_export <- bridge_cases |>
     new_acquisition_interest_m = additional_acquisition_interest_m,
     operating_savings_m, incremental_revenue_to_profit,
     counterfactual_revenue_m, counterfactual_ebitda_m,
-    counterfactual_ebtda_m, achieved_net_margin, target_net_margin)
+    counterfactual_ebtda_m, counterfactual_pre_tax_income_m,
+    estimated_tax_m, counterfactual_after_tax_income_m,
+    achieved_net_margin, target_net_margin)
 readr::write_csv(bridge_export,
   file.path(bridge_output_dir, 'profitability_bridge_scenarios_long.csv'))
 if (bridge_export_chart_long) {
