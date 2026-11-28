@@ -123,8 +123,8 @@ if (!all(required_compare %in% names(final_totals))) {
        call. = FALSE)
 }
 # All financial amounts in final_totals have already been expressed in 2025
-# CAD. Use the actual EBITDA-ACCC total operating revenue, not
-# SCACH's separate Sydney net-profit revenue basis.
+# CAD. Use matched operating EBITDA and revenue: contemporary SCACH for
+# Sydney, ACCC for the other three airports. Historical allocation stays ACCC.
 bridge_australia <- final_totals |>
   filter(country == 'Australia') |>
   mutate(year_label = if_else(is.na(year), '2023-25',
@@ -359,7 +359,9 @@ bridge_export <- bridge_cases |>
     new_acquisition_interest_m = additional_acquisition_interest_m,
     operating_savings_m, incremental_revenue_to_profit,
     counterfactual_revenue_m, counterfactual_ebitda_m,
-    counterfactual_ebtda_m, achieved_net_margin, target_net_margin)
+    counterfactual_ebtda_m, counterfactual_pre_tax_income_m,
+    estimated_tax_m, counterfactual_after_tax_income_m,
+    achieved_net_margin, target_net_margin)
 readr::write_csv(bridge_export,
   file.path(bridge_output_dir, 'profitability_bridge_scenarios_long.csv'))
 if (bridge_export_chart_long) {

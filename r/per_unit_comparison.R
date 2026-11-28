@@ -5,21 +5,21 @@
 #
 # Canadian amounts come from airport annual reports. Australian revenue
 # comes from the ACCC supplementary database, with regulatory accounts used
-# for detailed costs and profitability. Sydney's below-operating results
-# use SCACH consolidated statements.
+# for detailed costs and profitability. Sydney's contemporary 2023–2025
+# comparison uses SCACH consolidated calendar-year statements and traffic.
 #
 # Monetary comparisons are in 2025 CAD. Canadian amounts are adjusted using
 # Canadian CPI; ACCC supplementary amounts are already in 2024–25 AUD.
-# Australian amounts use the fixed 2025 CAD/AUD rate. Canada is reported by
-# calendar year and Australia by June-ending financial year.
+# Australian amounts use the fixed 2025 CAD/AUD rate. Canada and recent
+# Sydney use calendar years; BNE/MEL/PER use June-ending financial years.
 #
 # Outputs: annual aeronautical revenue growth, annual and pooled financial
 # comparison CSVs, source provenance, and a reusable financial audit RDS.
 # The separate workbook script assembles the final Excel workbook.
 #
 # Source notes: YYZ's 2015 AIF gross-up uses an estimated collection fee;
-# missing historical values remain missing. Sydney uses ACCC operating
-# results and SCACH calendar-year results below operating profit.
+# missing historical values remain missing. The Australian long-run series
+# remains entirely ACCC; Sydney contemporary financials use SCACH.
 
 suppressPackageStartupMessages({
   library(tidyverse)
@@ -163,6 +163,33 @@ if (!all(c('year', 'cpi_original', 'adjustment_to_2025') %in% names(aus_cpi)) ||
 }
 assert_unique(aus_cpi, 'year', 'Australian FY CPI')
 
+# Sydney CY nominal amounts are converted to the SAME Australian price
+# base (FY2024–25) as ACCC. Use one re-referenced quarterly index vintage
+# for numerator and denominator; do not splice rebased and legacy levels.
+scach_cpi_quarters <- readr::read_csv(
+  here('preserved_data', 'abs_cpi_quarterly_2023_2025.csv'),
+  show_col_types = FALSE)
+assert_unique(scach_cpi_quarters, c('year', 'quarter'), 'SCACH CPI quarters')
+if (nrow(scach_cpi_quarters) != 12L ||
+    !setequal(scach_cpi_quarters$year, recent_years) ||
+    any(!is.finite(scach_cpi_quarters$cpi_index) |
+        scach_cpi_quarters$cpi_index <= 0) ||
+    any((scach_cpi_quarters |> count(year))$n != 4L) ||
+    !all(scach_cpi_quarters$quarter %in% 1:4) ||
+    !all(scach_cpi_quarters$index_reference == 'September 2025 = 100.00'))
+  stop('Invalid SCACH quarterly CPI inputs.')
+scach_fy2025_cpi <- scach_cpi_quarters |>
+  filter((year == 2024L & quarter %in% 3:4) |
+         (year == 2025L & quarter %in% 1:2)) |>
+  summarise(index = mean(cpi_index)) |> pull(index)
+scach_cpi <- scach_cpi_quarters |>
+  group_by(year) |>
+  summarise(cpi_original = mean(cpi_index), .groups = 'drop') |>
+  mutate(base_cpi = scach_fy2025_cpi,
+         adjustment_to_2025 = base_cpi / cpi_original,
+         source_url = 'https://www.abs.gov.au/statistics/economy/price-indexes-and-inflation/consumer-price-index-australia/dec-2025',
+         source_note = 'Re-referenced quarterly All Groups CPI, Chart 1 and December 2025; common FY2024-25 numerator / CY mean')
+
 # ============================================================================
 # 3. CANADIAN REVENUE AND FINANCIAL DATA
 # ============================================================================
@@ -253,6 +280,10 @@ can_lookup <- c(
   'Write-down or impairement of property and equipment' = 'asset_impairment',
   'Interest and financing costs net of interest income' = 'net_financing_costs',
   'Post-employment pension benefits remeasurement loss' = 'pension_remeasurement',
+  'Loss on disposal of capital assets' = 'asset_disposal_loss',
+  'Contributions' = 'contributions',
+  'Partnership income' = 'partnership_income',
+  'Insurance recoveries' = 'insurance_recoveries',
   'Total Expenses' = 'total_expenses_can',
   'EBITDA' = 'ebitda_can',
   'Net Income' = 'net_income_can',
@@ -466,11 +497,7 @@ growth_summary <- aero_series |>
     .groups = 'drop'
   )
 
-# Retain 2023–2025 revenue observations for the detailed comparison.
-annual <- annual_all |>
-  filter(year %in% recent_years) |>
-  select(country, airport, year, period, variable,
-         amount_cad_2025_m, passengers, per_passenger_cad_2025)
+# The contemporary revenue panel is constructed after reading SCACH below.
 
 # ============================================================================
 # 6. OPERATING COSTS AND PROFITABILITY, 2023–2025
@@ -554,8 +581,7 @@ assert_unique(cost_groups_annual,
 
 # 6.2 Operating profit and net-income source data
 # ----------------------------------------------------------------
-# Use ACCC operating results for Sydney and SCACH consolidated results
-# for financing, pretax income, tax, and net income.
+# BNE/MEL/PER use ACCC regulatory accounts. Sydney uses SCACH throughout.
 required_reg <- c('ebitda', 'operating_profit', 'depreciation_amortisation',
                   'revenue', 'interest_financing_costs', 'profit_before_tax',
                   'income_tax_expense', 'net_profit_after_tax', 'abnormal_items',
@@ -566,11 +592,8 @@ if (!all(required_reg %in% names(reg_total))) {
 }
 
 # Read verified SCACH income-statement inputs.
-scach_path <- here('data', 'australia', 'regulatory_accounts', 'scach_income_verified_inputs_template.csv')
-
-preserved_scach_path <- here('preserved_data', 'scach_income_verified_inputs_template.csv')
-# Prefer the versioned source; keep the existing working path as a fallback.
-if (file.exists(preserved_scach_path)) scach_path <- preserved_scach_path
+scach_path <- here('preserved_data', 'scach_income_verified_inputs_template.csv')
+if (!file.exists(scach_path)) stop('Missing versioned SCACH source: ', scach_path)
 scach <- readr::read_csv(scach_path, show_col_types = FALSE) |>
   filter(airport == 'SYD', calendar_year %in% recent_years) |>
   mutate(year = as.integer(calendar_year))
@@ -586,7 +609,28 @@ scach_require <- c('total_revenue', 'ebitda', 'depreciation', 'amortisation',
                    'rps_interest_expensed', 'rps_debt_cost_amortisation',
                    'rps_interest_paid', 'dividends_paid', 'capital_return_net')
 
-if (anyNA(scach[scach_require])) stop('Incomplete SCACH income statement.')
+scach_operating_fields <- c('aeronautical_revenue', 'aeronautical_security_recovery',
+  'retail_revenue', 'property_car_rental_revenue', 'parking_ground_transport_revenue',
+  'other_revenue', 'profit_on_disposal_noncurrent_assets', 'employee_benefits_expense',
+  'services_utilities_expense', 'property_maintenance_expense', 'security_recoverable_expense',
+  'expected_credit_loss', 'other_operational_costs', 'total_operating_expenses',
+  'write_off_noncurrent_assets', 'total_expenses_before_da_finance_tax',
+  'domestic_passengers', 'international_passengers', 'passengers')
+if (!all(c(scach_require, scach_operating_fields, 'passenger_source_url',
+           'passenger_source_note') %in% names(scach)) ||
+    any(!is.finite(as.matrix(scach[c(scach_require, scach_operating_fields)]))) ||
+    anyNA(scach$passenger_source_url) || anyNA(scach$passenger_source_note))
+  stop('Incomplete expanded SCACH source CSV.')
+if (any(abs(rowSums(scach[scach_operating_fields[1:6]]) - scach$total_revenue) > 0.15) ||
+    any(abs(rowSums(scach[scach_operating_fields[8:13]]) - scach$total_operating_expenses) > 0.15) ||
+    any(abs(scach$total_operating_expenses + scach$write_off_noncurrent_assets -
+            scach$total_expenses_before_da_finance_tax) > 0.15) ||
+    any(abs(scach$total_revenue + scach$profit_on_disposal_noncurrent_assets -
+            scach$total_expenses_before_da_finance_tax - scach$ebitda) > 0.15) ||
+    any(scach$passengers <= 0 | scach$domestic_passengers < 0 |
+        scach$international_passengers < 0 |
+        scach$passengers != scach$domestic_passengers + scach$international_passengers))
+  stop('SCACH operating or passenger source reconciliation failed.')
 if (any(abs(scach$ebitda - scach$depreciation - scach$amortisation -
             scach$ebit) > 0.15) ||
     any(abs(scach$ebit - scach$net_finance_costs -
@@ -627,12 +671,95 @@ if (any(abs(with(scach_reconciliation, finance_costs_adjusted - finance_income -
   stop('Adjusted SCACH financing and profit bridge failed.')
 }
 
-scach_join <- scach_reconciliation |>
-  select(year, all_of(scach_require), finance_costs_adjusted,
-         net_finance_costs_adjusted, profit_before_tax_adjusted,
-         net_profit_after_tax_adjusted, shareholder_payouts,
-         source_url, source_note, reporting_period) |>
-  rename_with(~ paste0('scach_', .x), -year)
+# Only the contemporary panel is substituted. annual_all and aero_series
+# retain the ACCC historical series, including Sydney's June-ending years.
+scach_recent <- scach_reconciliation |>
+  left_join(scach_cpi |> select(year, adjustment_to_2025), by = 'year') |>
+  mutate(aero_revenue = aeronautical_revenue + aeronautical_security_recovery,
+         commercial_revenue = total_revenue - aero_revenue,
+         parking_transport_revenue = parking_ground_transport_revenue,
+         non_aero_minus_parking = commercial_revenue - parking_transport_revenue,
+         # Preserve reported SCACH EBITDA: write-off is already expensed
+         # before EBITDA; the disposal gain offsets the expense subtotal.
+         operating_expenses = total_expenses_before_da_finance_tax -
+           profit_on_disposal_noncurrent_assets,
+         labour = employee_benefits_expense,
+         purchased_services_other = operating_expenses - labour,
+         depreciation_amortisation = depreciation + amortisation)
+if (any(abs(scach_recent$total_revenue - scach_recent$operating_expenses -
+            scach_recent$ebitda) > 0.15))
+  stop('SCACH harmonized operating expenses do not reconcile to EBITDA.')
+
+scach_revenue_recent <- scach_recent |>
+  select(airport, year, passengers, adjustment_to_2025,
+         total_revenue, aero_revenue, commercial_revenue,
+         parking_transport_revenue, non_aero_minus_parking) |>
+  pivot_longer(c(total_revenue, aero_revenue, commercial_revenue,
+                 parking_transport_revenue, non_aero_minus_parking),
+               names_to = 'variable', values_to = 'value_m') |>
+  mutate(country = 'Australia', period = as.character(year),
+         amount_cad_2025_m = value_m * adjustment_to_2025 * cad_per_aud_2025,
+         per_passenger_cad_2025 = amount_cad_2025_m * 1e6 / passengers,
+         grossup_method = 'not applicable',
+         source_basis = 'nominal AUD millions',
+         fx_cad_per_unit = cad_per_aud_2025)
+# Do not use ACCC standalone parking/landside splits alongside a combined
+# SCACH parking/transport total. Those split metrics remain historical only.
+revenue_source_annual <- annual_all |>
+  filter(year %in% recent_years, airport != 'SYD') |>
+  left_join(can_cpi |> select(year, can_factor = adjustment_to_2025), by = 'year') |>
+  mutate(source_basis = if_else(country == 'Canada', 'nominal CAD millions',
+                               'real 2024-25 AUD millions'),
+         adjustment_to_2025 = if_else(country == 'Canada', can_factor, 1),
+         fx_cad_per_unit = if_else(country == 'Canada', 1, cad_per_aud_2025)) |>
+  select(-can_factor) |>
+  bind_rows(scach_revenue_recent) |>
+  arrange(country, airport, year, variable)
+assert_unique(revenue_source_annual, c('country', 'airport', 'year', 'variable'),
+              'contemporary revenue sources')
+annual <- revenue_source_annual |>
+  select(country, airport, year, period, variable,
+         amount_cad_2025_m, passengers, per_passenger_cad_2025)
+
+scach_costs_recent <- scach_recent |>
+  select(airport, year, passengers, adjustment_to_2025,
+         operating_expenses, labour, purchased_services_other, depreciation_amortisation) |>
+  pivot_longer(c(operating_expenses, labour, purchased_services_other,
+                 depreciation_amortisation),
+               names_to = 'variable', values_to = 'value_m') |>
+  mutate(country = 'Australia', period = as.character(year), activity = 'total',
+         amount_cad_2025_m = value_m * adjustment_to_2025 * cad_per_aud_2025,
+         per_passenger_cad_2025 = amount_cad_2025_m * 1e6 / passengers)
+cost_groups_annual <- cost_groups_annual |>
+  filter(airport != 'SYD') |>
+  bind_rows(scach_costs_recent |> select(-adjustment_to_2025)) |>
+  arrange(variable, country, airport, year)
+assert_unique(cost_groups_annual, c('country', 'airport', 'year', 'variable'),
+              'contemporary cost groups')
+
+# Authoritative recent passenger panel with document provenance. The
+# historical aus_pass object remains the original ACCC passenger series.
+contemporary_passengers <- bind_rows(
+  pass_df |> filter(year %in% recent_years) |>
+    transmute(country = 'Canada', airport, year, passengers,
+      reporting_basis = 'CY',
+      source_url = 'https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=2310025301',
+      source_sheet = 'Statistics Canada 23-10-0253-01'),
+  readr::read_csv(aus_pass_path, show_col_types = FALSE) |>
+    transmute(country = 'Australia', airport, year = fy_end(year), passengers,
+      reporting_basis = 'June-ending FY', source_url, source_sheet) |>
+    filter(airport != 'SYD', year %in% recent_years),
+  scach_recent |>
+    transmute(country = 'Australia', airport, year, passengers,
+      reporting_basis = 'CY (SCACH)', source_url = passenger_source_url,
+      source_sheet = passenger_source_note))
+assert_unique(contemporary_passengers, c('country', 'airport', 'year'),
+              'contemporary passengers')
+if (nrow(contemporary_passengers) != 24L ||
+    any(!is.finite(contemporary_passengers$passengers) |
+        contemporary_passengers$passengers <= 0) ||
+    anyNA(contemporary_passengers$source_url))
+  stop('Incomplete contemporary passengers.')
 
 # For Canadian airport authorities, use net income as pretax income and
 # zero income-tax expense. EBIT deducts D&A and identified impairments.
@@ -641,13 +768,31 @@ scach_join <- scach_reconciliation |>
 can_fin_vars <- c('total_revenue', 'ebitda_can',
                   'depreciation_amortisation', 'asset_impairment',
                   'net_financing_costs', 'net_income_can',
-                  'profit_before_tax_can', 'income_tax_expense_can')
+                  'profit_before_tax_can', 'income_tax_expense_can',
+                  'pension_remeasurement', 'asset_disposal_loss',
+                  'contributions', 'partnership_income', 'insurance_recoveries',
+                  'operating_expenses_can')
 can_fin_raw <- can_long |>
   filter(year %in% recent_years, variable %in% can_fin_vars) |>
   select(airport, year, variable, value_m) |>
   pivot_wider(names_from = variable, values_from = value_m)
 for (nm in can_fin_vars) {
   if (!nm %in% names(can_fin_raw)) can_fin_raw[[nm]] <- NA_real_
+}
+# The repaired source worksheet explicitly records all five adjustment
+# lines for every airport-year (including zeroes). Do not impute missing rows.
+can_adjustment_vars <- c('pension_remeasurement', 'asset_disposal_loss',
+                         'contributions', 'partnership_income', 'insurance_recoveries')
+if (nrow(can_fin_raw) != 4L * length(recent_years) ||
+    any(!is.finite(as.matrix(can_fin_raw[can_adjustment_vars])))) {
+  stop('Incomplete Canadian non-operating adjustments; use the repaired source workbook.')
+}
+can_fin_check <- can_fin_raw |>
+  mutate(ebitda_residual = total_revenue - operating_expenses_can - ebitda_can)
+if (any(!is.finite(can_fin_check$ebitda_residual) |
+        abs(can_fin_check$ebitda_residual) > 0.05)) {
+  print(can_fin_check |> select(airport, year, ebitda_residual))
+  stop('Canadian EBITDA does not reconcile to revenue less operating expenses.')
 }
 can_fin <- tidyr::expand_grid(airport = ports$airport, year = recent_years) |>
   left_join(can_fin_raw, by = c('airport', 'year')) |>
@@ -660,6 +805,12 @@ can_fin <- tidyr::expand_grid(airport = ports$airport, year = recent_years) |>
     ebit = ebitda_can - depreciation_amortisation - asset_impairment,
     depreciation_amortisation, asset_impairment,
     abnormal_items = NA_real_, reported_ebit = NA_real_,
+    pension_remeasurement, asset_disposal_loss, contributions,
+    partnership_income, insurance_recoveries,
+    # Gains/income are positive; expense-positive losses are subtracted.
+    non_operating_adjustments = contributions + partnership_income +
+      insurance_recoveries - pension_remeasurement - asset_disposal_loss,
+    other_income_expenses_net = non_operating_adjustments,
     interest_financing_costs = net_financing_costs,
     net_financing_costs, finance_costs_gross = NA_real_,
     finance_income = NA_real_, one_off_financing_loss = NA_real_,
@@ -678,56 +829,52 @@ can_fin <- tidyr::expand_grid(airport = ports$airport, year = recent_years) |>
 # 6.4 Standardize Australian financial measures
 # ----------------------------------------------------------------
 aus_financial <- reg_total |>
+  filter(airport != 'SYD') |>
   left_join(aus_pass |>
               transmute(airport, year = fy_end(year), passengers),
             by = c('airport', 'year')) |>
-  left_join(scach_join, by = 'year') |>
   transmute(
     country = 'Australia', airport, year, period = fyear, passengers,
     adjustment_to_2025, fx_cad_per_unit = cad_per_aud_2025,
-    ebitda,
-    # ACCC operating profit already includes D&A expense.
-    ebit = operating_profit, depreciation_amortisation,
+    ebitda, ebit = operating_profit, depreciation_amortisation,
     asset_impairment = NA_real_, abnormal_items,
     reported_ebit = ebit_reported,
-    interest_financing_costs = if_else(airport == 'SYD',
-                                       scach_net_finance_costs_adjusted,
-                                       interest_financing_costs),
-    net_financing_costs = if_else(airport == 'SYD',
-                                   scach_net_finance_costs_adjusted, NA_real_),
-    finance_costs_gross = if_else(airport == 'SYD',
-                                   scach_finance_costs_adjusted, NA_real_),
-    finance_income = if_else(airport == 'SYD',
-                               scach_finance_income, NA_real_),
-    one_off_financing_loss = if_else(airport == 'SYD',
-                                      0, NA_real_),
-    profit_before_tax = if_else(airport == 'SYD',
-                                  scach_profit_before_tax_adjusted, profit_before_tax),
-    accounting_income_tax_expense = if_else(airport == 'SYD',
-                                             scach_income_tax_expense,
-                                             income_tax_expense),
-    net_income = if_else(airport == 'SYD',
-                           scach_net_profit_after_tax_adjusted, net_profit_after_tax),
-    shareholder_payouts = if_else(airport == 'SYD', scach_shareholder_payouts,
-                                   dividends_paid),
-    ebitda_ebit_revenue_basis = revenue,
-    # SCACH net margins MUST use matching SCACH consolidated revenue,
-    # not ACCC regulated revenue for the June-ending fiscal year.
-    net_income_revenue_basis = if_else(airport == 'SYD',
-                                        scach_total_revenue, revenue),
-    financial_source = if_else(airport == 'SYD',
-                                'ACCC operating / SCACH consolidated below-operating',
-                                'ACCC audited regulatory accounts'),
-    financial_period = if_else(airport == 'SYD',
-                                scach_reporting_period, fyear),
-    financing_definition = if_else(airport == 'SYD',
-      'SCACH net finance costs excluding RPS interest, RPS cost amortisation and redemption loss; includes interest income and swap revaluation',
-      'ACCC signed Interest line, expense-positive; gross/net decomposition unavailable'),
-    net_income_definition = if_else(airport == 'SYD',
-      'SCACH consolidated calendar-year net income before RPS remuneration and redemption loss; reported tax retained',
-      'ACCC audited total reported fiscal-year net profit after tax'),
-    scach_source_url = if_else(airport == 'SYD', scach_source_url,
-                               NA_character_))
+    # Blank abnormal items at Perth mean no separately reported adjustment;
+    # restrict structural zero to Perth; missing BNE/MEL values must fail.
+    other_income_expenses_net = if_else(airport == 'PER' & is.na(abnormal_items),
+                                       0, abnormal_items),
+    interest_financing_costs, net_financing_costs = NA_real_,
+    finance_costs_gross = NA_real_, finance_income = NA_real_,
+    one_off_financing_loss = NA_real_, profit_before_tax,
+    accounting_income_tax_expense = income_tax_expense,
+    net_income = net_profit_after_tax, shareholder_payouts = dividends_paid,
+    ebitda_ebit_revenue_basis = revenue, net_income_revenue_basis = revenue,
+    financial_source = 'ACCC audited regulatory accounts',
+    financial_period = fyear,
+    financing_definition = 'ACCC signed Interest line, expense-positive; gross/net decomposition unavailable',
+    net_income_definition = 'ACCC audited total reported fiscal-year net profit after tax',
+    scach_source_url = NA_character_) |>
+  bind_rows(scach_recent |>
+    transmute(
+      country = 'Australia', airport, year, period = as.character(year), passengers,
+      adjustment_to_2025, fx_cad_per_unit = cad_per_aud_2025,
+      ebitda, ebit, depreciation_amortisation,
+      asset_impairment = NA_real_, abnormal_items = NA_real_, reported_ebit = ebit,
+      other_income_expenses_net = 0,
+      interest_financing_costs = net_finance_costs_adjusted,
+      net_financing_costs = net_finance_costs_adjusted,
+      finance_costs_gross = finance_costs_adjusted, finance_income,
+      one_off_financing_loss = 0,
+      profit_before_tax = profit_before_tax_adjusted,
+      accounting_income_tax_expense = income_tax_expense,
+      net_income = net_profit_after_tax_adjusted, shareholder_payouts,
+      ebitda_ebit_revenue_basis = total_revenue,
+      net_income_revenue_basis = total_revenue,
+      financial_source = 'SCACH consolidated calendar-year statements',
+      financial_period = reporting_period,
+      financing_definition = 'SCACH net finance costs excluding RPS interest, RPS cost amortisation and redemption loss; includes interest income and swap revaluation',
+      net_income_definition = 'SCACH consolidated calendar-year net income before RPS remuneration and redemption loss; reported tax retained',
+      scach_source_url = source_url))
 
 # 6.5 Combine and validate the eight-airport financial panel
 # ----------------------------------------------------------------
@@ -773,6 +920,41 @@ if (any(abs(financial_source_annual$ebitda -
             financial_source_annual$ebit) > 0.03, na.rm = TRUE)) {
   stop('Operating EBIT reconciliation failed.')
 }
+# All eight airports: signed source-derived adjustment, never a residual.
+pretax_bridge <- financial_source_annual |>
+  mutate(calculated_pretax = ebit - interest_financing_costs + other_income_expenses_net,
+         pretax_residual = profit_before_tax - calculated_pretax,
+         tolerance_m = if_else(airport == 'SYD', 0.15, 0.05))
+if (nrow(pretax_bridge) != 24L ||
+    any(!is.finite(pretax_bridge$pretax_residual) |
+        abs(pretax_bridge$pretax_residual) > pretax_bridge$tolerance_m)) {
+  print(pretax_bridge |> select(country, airport, year, ebit,
+    interest_financing_costs, other_income_expenses_net,
+    calculated_pretax, profit_before_tax, pretax_residual), n = Inf)
+  stop('Eight-airport EBIT-to-pretax reconciliation failed.')
+}
+can_pretax_bridge <- pretax_bridge |> filter(country == 'Canada')
+# Verify all contemporary amounts use the very same passenger keys.
+passenger_check <- financial_source_annual |>
+  select(country, airport, year, passengers) |>
+  left_join(contemporary_passengers |> select(country, airport, year,
+    source_passengers = passengers), by = c('country', 'airport', 'year'))
+if (anyNA(passenger_check$source_passengers) ||
+    any(passenger_check$passengers != passenger_check$source_passengers))
+  stop('Financial and contemporary passenger sources disagree.')
+# Check the denominators carried by every actual monetary source stream.
+for (source_panel in list(revenue_source_annual, cost_groups_annual)) {
+  source_passenger_check <- source_panel |>
+    select(country, airport, year, passengers) |>
+    distinct() |>
+    left_join(contemporary_passengers |> select(country, airport, year,
+      matched_passengers = passengers), by = c('country', 'airport', 'year'))
+  if (any(!is.finite(source_passenger_check$passengers)) ||
+      anyNA(source_passenger_check$matched_passengers) ||
+      any(source_passenger_check$passengers != source_passenger_check$matched_passengers))
+    stop('Contemporary revenue/cost source denominators disagree.')
+}
+
 # Check reported net income against pretax income less accounting tax expense.
 tax_bridge <- financial_source_annual |>
   filter(!is.na(profit_before_tax),
@@ -789,11 +971,11 @@ if (any(abs(tax_bridge$residual) > 0.05)) {
 # 7.1 Convert financial amounts to 2025 CAD
 # ----------------------------------------------------------------
 # Apply the annual price adjustments and fixed 2025 AUD/CAD rate.
-# Sydney's calendar-year amounts use the corresponding Australian FY CPI factor.
+# Sydney uses its calendar-year CPI denominator and common FY2024-25 price base.
 financial_vars <- c('ebitda', 'ebit', 'interest_financing_costs',
                     'net_financing_costs', 'finance_costs_gross',
                     'finance_income', 'one_off_financing_loss',
-                    'abnormal_items', 'reported_ebit',
+                    'abnormal_items', 'reported_ebit', 'non_operating_adjustments', 'other_income_expenses_net',
                     'profit_before_tax', 'accounting_income_tax_expense',
                     'net_income', 'ebitda_ebit_revenue_basis',
                     'net_income_revenue_basis', 'shareholder_payouts', 'cash_capital_investment')
@@ -866,7 +1048,7 @@ comparison_vars <- c(
   'depreciation_amortisation', 'federal_ground_rent', 'pilt',
   'musqueam_yvr_agreement', 'asset_impairment',
   'ebitda', 'ebitda_margin_pct', 'ebit', 'ebit_margin_pct',
-  'abnormal_items', 'reported_ebit',
+  'abnormal_items', 'reported_ebit', 'non_operating_adjustments', 'other_income_expenses_net',
   'interest_financing_costs', 'net_financing_costs',
   'finance_costs_gross', 'finance_income', 'one_off_financing_loss',
   'profit_before_tax', 'accounting_income_tax_expense', 'net_income',
@@ -879,14 +1061,7 @@ airport_keys <- bind_rows(
   tibble(country = 'Australia', airport = c('BNE', 'MEL', 'PER', 'SYD'))
 ) |> distinct()
 
-passenger_pools <- bind_rows(
-  pass_df |> filter(year %in% recent_years) |>
-    mutate(country = 'Canada') |>
-    select(country, airport, year, passengers),
-  aus_pass |>
-    transmute(country = 'Australia', airport, year = fy_end(year), passengers) |>
-    filter(year %in% recent_years)
-) |>
+passenger_pools <- contemporary_passengers |>
   group_by(country, airport) |>
   summarise(years = n_distinct(year),
             pooled_passengers = if (years[1] == length(recent_years) &&
@@ -1122,7 +1297,7 @@ keep_vars <- c(
   'ebitda', 'ebitda_margin_pct',
   'depreciation_amortisation', 'asset_impairment',
   'ebit', 'ebit_margin_pct',
-  'interest_financing_costs', 'abnormal_items',
+  'interest_financing_costs', 'abnormal_items', 'non_operating_adjustments', 'other_income_expenses_net',
   'profit_before_tax', 'accounting_income_tax_expense',
   'net_income', 'net_profit_margin_pct', 'shareholder_payouts', 'cash_capital_investment'
 )
@@ -1180,7 +1355,7 @@ readr::write_csv(aero_series,
 message('Saved annual and pooled comparison tables, workbook, and counterfactual revenue series in ', out_dir)
 message('Australian CPI: ABS ', abs_id,
         '; supplementary data were already in constant FY2024–25 AUD.')
-message('Sydney: SCACH Jan–Dec 2023–2025 financing/net results; ACCC June FY operating results.')
+message('Sydney: SCACH Jan–Dec 2023–2025 contemporary financials and passengers; ACCC historical series unchanged.')
 print(growth_summary |> arrange(country, airport), n = Inf)
 
 
@@ -1265,14 +1440,7 @@ scach_sources <- scach |>
     scach_url = source_url
   )
 
-# Sydney measures sourced from SCACH.
-scach_vars <- c(
-  'interest_financing_costs',
-  'profit_before_tax',
-  'accounting_income_tax_expense',
-  'net_income',
-  'net_profit_margin_pct', 'shareholder_payouts'
-)
+# All contemporary Sydney financial measures use SCACH.
 
 # Attach a source URL and worksheet to each annual comparison measure.
 # 9.5 Match each annual measure to its source
@@ -1292,9 +1460,7 @@ provenance_annual <- comparison_annual_complete |>
       variable == 'cash_capital_investment' ~
         'https://github.com/rromard/airports/blob/main/preserved_data/airport_cash_capital_investment_2023_2025.csv',
       country == 'Canada' ~ can_url,
-      country == 'Australia' &
-        airport == 'SYD' &
-        variable %in% scach_vars ~ scach_url,
+      country == 'Australia' & airport == 'SYD' ~ scach_url,
       country == 'Australia' &
         variable %in% sup_map$variable ~ sup_url,
       country == 'Australia' ~ reg_url
@@ -1302,9 +1468,7 @@ provenance_annual <- comparison_annual_complete |>
     source_sheet = case_when(
       variable == 'cash_capital_investment' ~ 'Preserved annual-report cash-flow inputs (file/page in CSV)',
       country == 'Canada' & variable == 'shareholder_payouts' ~ 'Structural zero: non-share-capital authority',
-      country == 'Australia' &
-        airport == 'SYD' &
-        variable %in% scach_vars ~
+      country == 'Australia' & airport == 'SYD' ~
         'SCACH consolidated financial statements',
       country == 'Australia' &
         variable %in% sup_map$variable ~ sup_sheet,
@@ -1347,12 +1511,18 @@ readr::write_csv(capital_investment_source,
 saveRDS(
   list(
     annual_all = annual_all,
+    revenue_source_annual = revenue_source_annual,
+    contemporary_passengers = contemporary_passengers,
+    scach_cpi = scach_cpi,
+    scach_cpi_quarters = scach_cpi_quarters,
+    pretax_bridge = pretax_bridge,
     cost_groups_annual = cost_groups_annual,
     financial_amounts_annual = financial_amounts_annual,
     comparison_annual_long = comparison_annual_long,
     annual_margins = annual_margins,
     comparison_pooled_long = comparison_pooled_long,
     financial_source_annual = financial_source_annual,
+    can_pretax_bridge = can_pretax_bridge,
     scach_reconciliation = scach_reconciliation,
     capital_investment_source = capital_investment_source,
     pass_df = pass_df,

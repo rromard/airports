@@ -42,9 +42,7 @@ paths <- list(
   audit = file.path(out_dir, 'financial_comparison_audit_2023_2025.rds'),
   canada = here::here('output', 'big4_long.csv'),
   supplementary = here::here('output', 'accc_financial_provenance.csv'),
-  regulatory = here::here('output', 'accc_airport_ebitda_by_activity_2022_2025.csv'),
-  australia_passengers = here::here('data', 'australia',
-                                   'accc_airport_passengers_2007_2025.csv')
+  regulatory = here::here('output', 'accc_airport_ebitda_by_activity_2022_2025.csv')
 )
 
 missing_paths <- names(paths)[!file.exists(unlist(paths))]
@@ -256,7 +254,9 @@ assert_unique(reg_inputs, c('airport', 'year', 'activity', 'measure'),
 # SAVED AUDIT OBJECTS -----------------------------------------------------
 audit <- readRDS(paths$audit)
 required_objects <- c(
-  'annual_all', 'cost_groups_annual', 'financial_amounts_annual',
+  'annual_all', 'revenue_source_annual', 'contemporary_passengers',
+  'scach_cpi', 'scach_cpi_quarters', 'pretax_bridge',
+  'cost_groups_annual', 'financial_amounts_annual',
   'comparison_annual_long', 'annual_margins',
   'comparison_pooled_long', 'pass_df', 'aus_pass',
   'can_cpi', 'aus_cpi', 'passenger_pools', 'financial_source_annual'
@@ -267,29 +267,16 @@ if (!is.list(audit) || !all(required_objects %in% names(audit))) {
 }
 
 # ECONOMIC INPUTS: PASSENGERS, CPI, FX ------------------------------------
-traffic_can <- audit$pass_df |>
-  filter(year %in% 2023:2025) |>
-  transmute(country = 'Canada', airport, year, measure = 'passengers',
+traffic_recent <- audit$contemporary_passengers |>
+  transmute(country, airport, year, measure = 'passengers',
             value = as.numeric(passengers), unit = 'passengers',
             value_type = 'reported', calculation = NA_character_,
-            source_sheet = 'Statistics Canada 23-10-0253-01',
-            source_url = paste0(
-              'https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=',
-              '2310025301'))
-
-aus_pass_raw <- read_input(paths$australia_passengers)
-assert_cols(aus_pass_raw, c('airport', 'year', 'passengers',
-                            'source_url', 'source_sheet'),
-            'ACCC passenger records')
-traffic_aus <- aus_pass_raw |>
-  transmute(country = 'Australia', airport,
-            year = as.integer(2000 + as.integer(str_extract(
-              as.character(year), '\\d{2}$'))),
-            measure = 'passengers',
-            value = as.numeric(passengers), unit = 'passengers',
-            value_type = 'reported', calculation = NA_character_,
-            source_sheet, source_url) |>
-  filter(year %in% 2023:2025)
+            source_sheet = paste(source_sheet, reporting_basis, sep = '; '),
+            source_url)
+assert_unique(traffic_recent, c('country', 'airport', 'year'), 'Contemporary traffic')
+if (nrow(traffic_recent) != 24L || any(!is.finite(traffic_recent$value) |
+    traffic_recent$value <= 0) || anyNA(traffic_recent$source_url))
+  stop('Incomplete contemporary traffic audit.')
 
 can_cpi_input <- audit$can_cpi |>
   filter(year %in% 2023:2025) |>
@@ -350,9 +337,31 @@ fx_input <- tibble(
   source_url = 'https://www.bankofcanada.ca/rates/exchange/annual-average-exchange-rates/'
 )
 
+scach_cpi_inputs <- bind_rows(
+  audit$scach_cpi |>
+    transmute(country = 'Australia', airport = 'SYD', year,
+      measure = 'cpi_cy_index', value = cpi_original, unit = 'index',
+      value_type = 'derived', calculation = 'Mean of four re-referenced quarterly CPI indexes',
+      source_sheet = source_note, source_url),
+  audit$scach_cpi |>
+    transmute(country = 'Australia', airport = 'SYD', year,
+      measure = 'cpi_fy2025_base_index', value = base_cpi, unit = 'index',
+      value_type = 'derived', calculation = 'Mean of Sep/Dec 2024 and Mar/Jun 2025 indexes in same vintage',
+      source_sheet = source_note, source_url),
+  audit$scach_cpi |>
+    transmute(country = 'Australia', airport = 'SYD', year,
+      measure = 'adjustment_to_2025', value = adjustment_to_2025,
+      unit = 'factor', value_type = 'derived',
+      calculation = 'Common Australian FY2024-25 CPI / source CY CPI',
+      source_sheet = source_note, source_url),
+  audit$scach_cpi_quarters |>
+    transmute(country = 'Australia', airport = 'SYD', year,
+      measure = paste0('cpi_quarter_', quarter), value = cpi_index,
+      unit = 'index', value_type = 'reported', calculation = NA_character_,
+      source_sheet = source_note, source_url))
 traffic_factors <- bind_rows(
-  traffic_can, traffic_aus, can_cpi_input, can_cpi_factor,
-  aus_cpi_input, aus_cpi_factor, fx_input
+  traffic_recent, can_cpi_input, can_cpi_factor,
+  aus_cpi_input, aus_cpi_factor, scach_cpi_inputs, fx_input
 ) |>
   arrange(country, airport, year, measure)
 assert_unique(traffic_factors, c('country', 'airport', 'year', 'measure'),
@@ -361,7 +370,7 @@ assert_unique(traffic_factors, c('country', 'airport', 'year', 'measure'),
 # CALCULATION AUDIT: ANNUAL RECORDS --------------------------------------
 # Reuse the ORIGINAL source amounts and adjusted amounts from the analysis.
 # Only harmonize variable names already harmonized in that analysis.
-revenue_audit <- audit$annual_all |>
+revenue_audit <- audit$revenue_source_annual |>
   filter(year %in% 2023:2025) |>
   mutate(
     variable = case_when(
@@ -374,18 +383,30 @@ revenue_audit <- audit$annual_all |>
   ) |>
   transmute(country, airport, year, period, variable, source_stream,
             source_amount_m = value_m, passengers,
-            amount_cad_2025_m, per_passenger_cad_2025)
+            amount_cad_2025_m, per_passenger_cad_2025,
+            source_basis, cpi_factor = adjustment_to_2025, fx_cad_per_unit)
+
+nominal_factors <- audit$financial_source_annual |>
+  transmute(country, airport, year, cpi_factor = adjustment_to_2025,
+            fx_cad_per_unit,
+            source_basis = if_else(country == 'Canada', 'nominal CAD millions',
+                                   'nominal AUD millions'))
+assert_unique(nominal_factors, c('country', 'airport', 'year'), 'Nominal conversion factors')
 
 cost_audit <- audit$cost_groups_annual |>
   filter(!variable %in% c('net_financing_costs', 'pension_remeasurement')) |>
   transmute(country, airport, year, period, variable,
             source_stream = 'costs', source_amount_m = value_m,
-            passengers, amount_cad_2025_m, per_passenger_cad_2025)
+            passengers, amount_cad_2025_m, per_passenger_cad_2025) |>
+  left_join(nominal_factors, by = c('country', 'airport', 'year'))
 
 financial_audit <- audit$financial_amounts_annual |>
   transmute(country, airport, year, period, variable,
             source_stream = 'profitability', source_amount_m = value_m,
-            passengers, amount_cad_2025_m, per_passenger_cad_2025)
+            passengers, amount_cad_2025_m, per_passenger_cad_2025,
+            cpi_factor = adjustment_to_2025, fx_cad_per_unit,
+            source_basis = if_else(country == 'Canada', 'nominal CAD millions',
+                                   'nominal AUD millions'))
 
 calculation_amounts <- bind_rows(revenue_audit, cost_audit, financial_audit)
 assert_unique(calculation_amounts,
@@ -411,30 +432,14 @@ if (nrow(check_amounts) != nrow(comparison_amounts) ||
   stop('Audit calculation amounts do not match comparison_annual_long.')
 }
 
-factors <- bind_rows(
-  audit$can_cpi |>
-    transmute(country = 'Canada', year,
-              annual_cpi_factor = adjustment_to_2025),
-  audit$aus_cpi |>
-    transmute(country = 'Australia', year,
-              annual_cpi_factor = adjustment_to_2025)
-)
-
+# Source selection and price bases are inherited from the upstream audit.
+# Reproduce the numerical conversion independently; no inferred SYD rules.
+if (anyNA(calculation_amounts$source_basis) ||
+    any(!is.finite(calculation_amounts$cpi_factor) | calculation_amounts$cpi_factor <= 0) ||
+    any(!is.finite(calculation_amounts$fx_cad_per_unit) | calculation_amounts$fx_cad_per_unit <= 0))
+  stop('Missing contemporary price basis or conversion factor.')
 calculation_amounts <- calculation_amounts |>
-  left_join(factors, by = c('country', 'year')) |>
-  mutate(
-    source_basis = case_when(
-      country == 'Canada' ~ 'nominal CAD millions',
-      source_stream == 'revenue' ~ 'real 2024-25 AUD millions',
-      TRUE ~ 'nominal AUD millions'
-    ),
-    cpi_factor = if_else(country == 'Australia' & source_stream == 'revenue',
-                         1, annual_cpi_factor),
-    fx_cad_per_unit = if_else(country == 'Canada', 1, fx_value),
-    # This is the model's existing conversion identity; it is an audit
-    # CHECK ONLY, not a replacement for its reported adjusted amounts.
-    converted_check = source_amount_m * cpi_factor * fx_cad_per_unit
-  )
+  mutate(converted_check = source_amount_m * cpi_factor * fx_cad_per_unit)
 if (!all(within_tolerance(calculation_amounts$converted_check,
                           calculation_amounts$amount_cad_2025_m,
                           tol = 1e-6))) {
@@ -451,11 +456,14 @@ value_type_for <- function(country, airport, variable) {
     country == 'Canada' & variable %in% c('accounting_income_tax_expense', 'shareholder_payouts') ~
       'assumed',
     variable == 'cash_capital_investment' ~ 'derived',
+    variable == 'other_income_expenses_net' ~ 'derived',
+    airport == 'SYD' & variable %in% c('total_aero', 'commercial_revenue', 'operating_expenses', 'purchased_services_other', 'depreciation_amortisation') ~ 'derived',
+    airport == 'SYD' & variable %in% c('ebitda', 'ebit', 'labour', 'parking_transport_revenue', 'total_revenue') ~ 'reported',
     airport == 'SYD' & variable %in% c('interest_financing_costs', 'net_financing_costs',
       'finance_costs_gross', 'one_off_financing_loss', 'profit_before_tax', 'net_income',
       'shareholder_payouts') ~ 'derived',
     country == 'Canada' & variable %in% c('total_aero', 'ebit',
-                                         'profit_before_tax') ~ 'derived',
+                                         'profit_before_tax', 'non_operating_adjustments') ~ 'derived',
     country == 'Australia' & variable %in% c(
       'commercial_revenue', 'parking_transport_revenue',
       'operating_expenses',
@@ -477,6 +485,14 @@ formula_for <- function(country, airport, variable) {
       'reported profit + RPS interest expense + RPS debt cost amortisation + RPS redemption loss; reported tax retained',
     airport == 'SYD' & variable == 'finance_costs_gross' ~ 'reported gross costs - RPS interest expense - RPS debt cost amortisation',
     airport == 'SYD' & variable == 'one_off_financing_loss' ~ 'zero after excluding RPS redemption loss',
+    variable == 'other_income_expenses_net' & country == 'Canada' ~ 'signed Canadian non-operating adjustments',
+    variable == 'other_income_expenses_net' & airport == 'SYD' ~ 'zero: reported consolidated EBIT includes exceptional items',
+    variable == 'other_income_expenses_net' & country == 'Australia' ~ 'ACCC abnormal items; Perth blank means no separately reported adjustment',
+    airport == 'SYD' & variable == 'total_aero' ~ 'aeronautical revenue + aeronautical security recovery',
+    airport == 'SYD' & variable == 'operating_expenses' ~ 'expenses before D&A including write-offs, net of disposal gain',
+    airport == 'SYD' & variable == 'purchased_services_other' ~ 'harmonized operating expenses - employee benefits',
+    airport == 'SYD' & variable == 'depreciation_amortisation' ~ 'reported depreciation + amortisation',
+    airport == 'SYD' & variable %in% c('ebitda', 'ebit', 'parking_transport_revenue', 'labour') ~ 'SCACH consolidated reported income statement',
     variable == 'total_aero' & country == 'Canada' ~
       'aero_excl_aif + aif_revenue',
     variable == 'commercial_revenue' & country == 'Australia' ~
@@ -497,6 +513,8 @@ formula_for <- function(country, airport, variable) {
       'ebitda - depreciation_amortisation - asset_impairment',
     variable == 'ebit' & country == 'Australia' ~
       'operating profit (after D&A, excludes abnormal items)',
+    variable == 'non_operating_adjustments' & country == 'Canada' ~
+      'contributions + partnership income + insurance recoveries - pension remeasurement loss - disposal loss',
     variable == 'profit_before_tax' & country == 'Canada' ~
       'net_income (Canadian tax-exempt airport authority convention)',
     variable == 'accounting_income_tax_expense' & country == 'Canada' ~
@@ -674,7 +692,7 @@ calc_annual <- calc_source |>
     measure = workbook_measure_key(variable),
     original_amount_m = source_amount_m,
     source_price_basis = if_else(
-      country == 'Australia' & source_stream == 'revenue',
+      source_basis == 'real 2024-25 AUD millions',
       'Already inflation-adjusted', 'Nominal'
     ),
     cpi_factor,
@@ -713,8 +731,8 @@ assert_unique(calc_pooled, c('country', 'airport', 'measure'),
 
 # The annual profitability bridge shows the numbers actually used by the
 # comparison: source EBITDA, D&A, and impairment -> operating EBIT. PBT,
-# income-tax expense, and net income are carried from reported/assumed
-# figures; they are NOT silently treated as reconstructed earnings.
+# tax and net income retain their source values; calculate a separate PBT
+# from EBIT, financing costs and signed adjustments for reconciliation.
 profit_source <- audit$financial_source_annual |>
   filter(year %in% 2023:2025) |>
   arrange(country, airport, year)
@@ -727,7 +745,9 @@ profit_annual <- profit_source |>
     ebitda_margin_pct = NA_real_, ebit_margin_pct = NA_real_,
     interest_financing_m = NA_real_, profit_before_tax_m = NA_real_,
     income_tax_expense_m = NA_real_, net_income_m = NA_real_,
-    net_revenue_m = NA_real_, net_profit_margin_pct = NA_real_
+    net_revenue_m = NA_real_, net_profit_margin_pct = NA_real_,
+    other_income_expenses_net_m = NA_real_, calculated_pretax_m = NA_real_,
+    pretax_difference_m = NA_real_
   )
 
 # One pooled row per airport and margin. Visible numerator/denominator keys
@@ -769,7 +789,9 @@ scach_vars <- c(
   'interest_financing_costs', 'finance_costs_gross', 'finance_income',
   'one_off_financing_loss', 'profit_before_tax',
   'accounting_income_tax_expense', 'net_income',
-  'net_income_revenue_basis', 'shareholder_payouts'
+  'net_income_revenue_basis', 'shareholder_payouts',
+  'ebitda', 'ebit', 'depreciation_amortisation', 'ebitda_ebit_revenue_basis',
+  'other_income_expenses_net'
 )
 scach_inputs <- audit$financial_source_annual |>
   filter(country == 'Australia', airport == 'SYD', year %in% 2023:2025) |>
@@ -796,7 +818,14 @@ scach_raw <- audit$scach_reconciliation |>
          income_tax_expense, net_profit_after_tax, rps_interest_expensed,
          rps_debt_cost_amortisation, rps_early_redemption_loss,
          rps_interest_paid, dividends_paid, capital_return_net,
-         rps_financing_expenses, shareholder_distributions_total) |>
+         rps_financing_expenses, shareholder_distributions_total,
+         total_revenue, ebitda, depreciation, amortisation, ebit,
+         aeronautical_revenue, aeronautical_security_recovery, retail_revenue,
+         property_car_rental_revenue, parking_ground_transport_revenue, other_revenue,
+         profit_on_disposal_noncurrent_assets, employee_benefits_expense,
+         services_utilities_expense, property_maintenance_expense, security_recoverable_expense,
+         expected_credit_loss, other_operational_costs, total_operating_expenses,
+         write_off_noncurrent_assets, total_expenses_before_da_finance_tax) |>
   pivot_longer(-c(airport, year, source_url), names_to = 'measure', values_to = 'value') |>
   transmute(country = 'Australia', airport, year, fyear = as.character(year),
     activity = 'SCACH reported inputs / reconciliation', measure, value,
@@ -887,6 +916,7 @@ source_catalog <- source_observations |>
         paste0('CAN-YVR-', year),
       str_detect(url_lc, fixed('admtl.com')) ~
         paste0('CAN-YUL-', year),
+      str_detect(url_lc, fixed('offering%20circular')) ~ 'AUS-SYD-EMTN-2024',
       str_detect(url_lc, fixed('links.sgx.com')) ~
         paste0('AUS-SCACH-', year),
       TRUE ~ sprintf('SOURCE-%03d', row_number())
@@ -958,8 +988,8 @@ methodology <- tribble(
     'Ratios of matched operating or net-income amounts and denominators. Pooled margins are ratios of three-year sums.',
   'Canadian AIF',
     'Aeronautical revenue including AIF is a separate derived measure; AIF is not added again to total revenue.',
-  'Sydney below-operating results',
-    'SCACH calendar-year financing and profits exclude RPS interest expense, RPS debt cost amortisation and the non-cash redemption loss; retain finance income, swap movements and reported accounting tax. Operating measures use June-ending ACCC sources. Reported amounts and adjustment bridge are preserved in the regulatory inputs and Sydney reconciliation CSV.',
+  'Sydney contemporary financials',
+    'SCACH calendar-year financing and profits exclude RPS interest expense, RPS debt cost amortisation and the non-cash redemption loss; retain finance income, swap movements and reported accounting tax. All contemporary Sydney measures use consolidated calendar-year SCACH accounts and rounded CY passenger counts. Historical Sydney series remain ACCC. Sydney nominal amounts use the CY quarterly CPI mean and common FY2024-25 price base. Reported EBITDA includes write-offs and the disposal gain; harmonized expenses include write-offs net of the disposal gain. Reported amounts and adjustment bridge are preserved in the regulatory inputs and Sydney reconciliation CSV.',
   'Shareholder payouts',
     'Canadian authorities have structural zero shareholder payouts. BNE/MEL/PER use ACCC dividends paid (missing stays missing; other shareholder financing may not be captured). Sydney uses ordinary cash dividends plus RPS cash interest; excludes return of capital and non-cash transactions.',
   'Cash capital investment',
@@ -969,7 +999,7 @@ methodology <- tribble(
   'Canadian input classifications',
     'Canadian financial input rows are imported as supplied by the Big 4 compilation. The workbook does not reclassify an imported subtotal as derived unless the analysis actually computes it.',
   'Commercial and other revenue',
-    'The workbook uses non_aero_revenue for the upstream commercial_revenue measure. Canada uses the reported commercial/non-aeronautical subtotal, including interest income and contributions (interest income is minor); Australia uses ACCC total revenue less aeronautical revenue.',
+    'The workbook uses non_aero_revenue for the upstream commercial_revenue measure. Canada uses standardized commercial/non-aeronautical revenue; Australia uses total less aeronautical revenue, including Sydney consolidated revenue.',
   'Non-aeronautical revenue minus parking',
     'non_aero_minus_parking = non_aero_revenue - parking_transport_revenue. Parking includes ground transportation/landside revenue. A residual is available only when both source components exist; missing parking is not replaced by zero. Pooled amounts use three-year sums and pooled passenger counts.',
   'Reconciliation',
@@ -1018,6 +1048,8 @@ var_dictionary <- tribble(
   'ebit_margin_pct', 'Operating EBIT / matched operating revenue, percentage points',
   'interest_financing_costs', 'Financing/interest costs per model source conventions',
   'abnormal_items', 'ACCC reported abnormal items',
+  'non_operating_adjustments', 'Canadian signed non-operating income and expenses',
+  'other_income_expenses_net', 'Signed other income and expenses: Canadian adjustments, ACCC abnormal items, zero for Sydney (included in EBIT)',
   'profit_before_tax', 'Profit before income tax',
   'accounting_income_tax_expense', 'Accounting income-tax expense, not cash taxes',
   'net_income', 'Net income / profit after tax (Sydney before RPS remuneration and redemption loss)',
@@ -1238,6 +1270,9 @@ header_labels <- c(
   ebitda_margin_pct = 'EBITDA margin (%)',
   ebit_margin_pct = 'EBIT margin (%)',
   net_profit_margin_pct = 'Net profit margin (%)',
+  other_income_expenses_net_m = 'Other income and expenses (net)',
+  calculated_pretax_m = 'Calculated pre-tax profit',
+  pretax_difference_m = 'Pre-tax reconciliation difference',
   cpi_factor = 'CPI factor applied',
   fx_cad_per_unit = 'Exchange rate',
   adjusted_amount_m = 'Amount in 2025 CAD',
@@ -1422,7 +1457,7 @@ add_data_sheet(sheet_names$calculations, calc_annual,
 add_data_sheet(sheet_names$profit, profit_annual,
                'Profit and margin calculations | annual',
                paste0('Amounts in millions of 2025 CAD; margins are percentages. ',
-                      'Australian impairment bridge term is zero by model convention. ',
+                      'Australian impairment bridge term is zero by model convention. Other income/expenses plus EBIT less financing reconciles to reported pre-tax profit. ',
                       'Net income uses the comparative source measure (Sydney adjusted for RPS); pooled margins below.'),
                'AnnualProfitMargins', freeze_cols = 3L)
 
@@ -1592,7 +1627,8 @@ bridge_link_vars <- c(
   'L' = 'profit_before_tax',
   'M' = 'accounting_income_tax_expense',
   'N' = 'net_income',
-  'O' = 'net_income_revenue_basis'
+  'O' = 'net_income_revenue_basis',
+  'Q' = 'other_income_expenses_net'
 )
 mr <- seq.int(5L, length.out = nrow(profit_annual))
 for (column_letter in names(bridge_link_vars)) {
@@ -1633,6 +1669,13 @@ write_column_formulas(sheet_names$profit, 10L, 5L,
 write_column_formulas(sheet_names$profit, 16L, 5L,
   sprintf('IF(AND(COUNT(N%d:O%d)=2,O%d>0),100*N%d/O%d,"")',
           mr, mr, mr, mr, mr))
+
+# Keep established profit table columns; add a live EBIT-to-pretax bridge.
+write_column_formulas(sheet_names$profit, 18L, 5L,
+  sprintf('IF(COUNT(G%d,K%d,Q%d)=3,G%d-K%d+Q%d,"")',
+          mr, mr, mr, mr, mr, mr))
+write_column_formulas(sheet_names$profit, 19L, 5L,
+  sprintf('IF(COUNT(L%d,R%d)=2,L%d-R%d,"")', mr, mr, mr, mr))
 
 # Pooled profit margin numerators/denominators are selected with exactly
 # the same key-based Excel lookup as pooled financial amounts. The required
@@ -1745,7 +1788,7 @@ recon_pooled <- recon_pooled_source |>
     `Per-passenger status` = NA_character_
   )
 
-# Four checks per annual airport-year: the separately computed EBIT bridge
+# Five checks per annual airport-year: EBIT and pre-tax income bridges
 # plus the three margins. Each lookup column always selects a named column
 # from the original (wide) AnnualProfitMargins Excel table.
 recon_profit_annual <- annual_abs |>
@@ -1765,7 +1808,9 @@ recon_profit_annual <- annual_abs |>
     `R net margin` = net_profit_margin_pct,
     `Excel net margin` = NA_real_,
     `Net margin difference` = NA_real_,
-    `Net margin status` = NA_character_
+    `Net margin status` = NA_character_,
+    `R pre-tax profit` = profit_before_tax, `Excel pre-tax profit` = NA_real_,
+    `Pre-tax difference` = NA_real_, `Pre-tax status` = NA_character_
   )
 
 recon_profit_pooled <- pooled_abs |>
@@ -1795,9 +1840,9 @@ production_add_worksheet(recon_sheet, gridLines = FALSE)
 openxlsx::writeData(wb, recon_sheet,
                     'Reconciliation | Excel calculations against R results',
                     startRow = 1L, startCol = 1L)
-openxlsx::mergeCells(wb, recon_sheet, rows = 1L, cols = 1:19)
+openxlsx::mergeCells(wb, recon_sheet, rows = 1L, cols = 1:23)
 openxlsx::addStyle(wb, recon_sheet, style_title, rows = 1L,
-                   cols = 1:19, gridExpand = TRUE)
+                   cols = 1:23, gridExpand = TRUE)
 openxlsx::setRowHeights(wb, recon_sheet, rows = 1L, heights = 34)
 openxlsx::writeData(wb, recon_sheet, 'Tolerance',
                     startRow = 3L, startCol = 1L)
@@ -1809,15 +1854,15 @@ openxlsx::addStyle(wb, recon_sheet,
 openxlsx::writeData(wb, recon_sheet,
   'PASS = within tolerance; FAIL = numeric difference; MISSING MISMATCH = only one side has a value; BOTH MISSING = both blank.',
   startRow = 4L, startCol = 1L)
-openxlsx::mergeCells(wb, recon_sheet, rows = 4L, cols = 1:19)
+openxlsx::mergeCells(wb, recon_sheet, rows = 4L, cols = 1:23)
 openxlsx::addStyle(wb, recon_sheet, style_subtitle,
-                   rows = 4L, cols = 1:19, gridExpand = TRUE)
+                   rows = 4L, cols = 1:23, gridExpand = TRUE)
 openxlsx::writeData(wb, recon_sheet,
   'The R values are fixed benchmarks; the Excel values are live lookups. Open and recalculate in Excel to populate these results.',
   startRow = 5L, startCol = 1L)
-openxlsx::mergeCells(wb, recon_sheet, rows = 5L, cols = 1:19)
+openxlsx::mergeCells(wb, recon_sheet, rows = 5L, cols = 1:23)
 openxlsx::addStyle(wb, recon_sheet, style_subtitle,
-                   rows = 5L, cols = 1:19, gridExpand = TRUE)
+                   rows = 5L, cols = 1:23, gridExpand = TRUE)
 openxlsx::setRowHeights(wb, recon_sheet, rows = 4:5, heights = 24)
 
 # Tables are deliberately separate, keeping their formulas uniform and
@@ -1863,7 +1908,7 @@ add_recon_section('annual', '1. Annual financial amounts | 2025 CAD millions and
                   recon_annual, 'ReconAnnualAmounts')
 add_recon_section('pooled', '2. Three-year pooled amounts | 2025 CAD millions and CAD per passenger',
                   recon_pooled, 'ReconPooledAmounts')
-add_recon_section('profit_annual', '3. Annual operating EBIT (2025 CAD millions) and margins (%)',
+add_recon_section('profit_annual', '3. Annual EBIT, pre-tax profit (2025 CAD millions) and margins (%)',
                   recon_profit_annual, 'ReconAnnualProfit')
 add_recon_section('profit_pooled', '4. Three-year pooled margins (%)',
                   recon_profit_pooled, 'ReconPooledProfit')
@@ -1994,7 +2039,9 @@ profit_metrics <- list(
   c('R EBIT margin', 'Excel EBIT margin',
     'EBIT margin difference', 'EBIT margin status', 'EBIT margin (%)'),
   c('R net margin', 'Excel net margin',
-    'Net margin difference', 'Net margin status', 'Net profit margin (%)')
+    'Net margin difference', 'Net margin status', 'Net profit margin (%)'),
+  c('R pre-tax profit', 'Excel pre-tax profit', 'Pre-tax difference',
+    'Pre-tax status', 'Calculated pre-tax profit')
 )
 for (metric in profit_metrics) {
   write_recon_lookup(profit_sec, metric[[2]],
@@ -2022,7 +2069,7 @@ status_ranges <- c(
   sprintf('%s%d:%s%d', 'G', pooled_sec$start, 'G', pooled_sec$end),
   sprintf('%s%d:%s%d', 'K', pooled_sec$start, 'K', pooled_sec$end),
   vapply(c('EBIT status', 'EBITDA margin status',
-           'EBIT margin status', 'Net margin status'), function(col) {
+           'EBIT margin status', 'Net margin status', 'Pre-tax status'), function(col) {
     ltr <- openxlsx::int2col(match(col, profit_sec$columns))
     sprintf('%s%d:%s%d', ltr, profit_sec$start, ltr, profit_sec$end)
   }, character(1)),
@@ -2041,12 +2088,12 @@ for (i in seq_along(status_summary)) {
 }
 # One numeric tolerance is used for all comparisons in their display units.
 # The expected total includes both absolute and per-passenger financial
-# checks, one EBIT bridge and three annual margins, and pooled margins.
+# checks, two income statement bridges and three annual margins, and pooled margins.
 expected_checks <- 2L * (nrow(recon_annual) + nrow(recon_pooled)) +
-  4L * nrow(recon_profit_annual) + nrow(recon_profit_pooled)
+  5L * nrow(recon_profit_annual) + nrow(recon_profit_pooled)
 if (expected_checks != length(amount_vars) * (nrow(annual_abs) +
                                                 nrow(pooled_abs)) * 2L +
-                       4L * nrow(annual_abs) +
+                       5L * nrow(annual_abs) +
                        length(margin_vars) * nrow(pooled_abs)) {
   stop('Unexpected number of reconciliation cells.')
 }
@@ -2059,9 +2106,9 @@ openxlsx::writeData(wb, recon_sheet, expected_checks,
 openxlsx::setColWidths(wb, recon_sheet, cols = 1:2, widths = 15)
 openxlsx::setColWidths(wb, recon_sheet, cols = 3, widths = 17)
 openxlsx::setColWidths(wb, recon_sheet, cols = 4, widths = 32)
-openxlsx::setColWidths(wb, recon_sheet, cols = 5:19, widths = 18)
+openxlsx::setColWidths(wb, recon_sheet, cols = 5:23, widths = 18)
 openxlsx::setColWidths(wb, recon_sheet,
-                       cols = c(8, 12, 15, 19), widths = 22)
+                       cols = c(8, 12, 15, 19, 23), widths = 22)
 openxlsx::freezePane(wb, recon_sheet,
                      firstActiveRow = 7L, firstActiveCol = 3L)
 
