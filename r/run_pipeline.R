@@ -16,6 +16,8 @@
 rebuild_australian_sources <- FALSE
 refresh_australian_tax    <- TRUE
 run_presentation_exports  <- TRUE
+run_published_quality     <- TRUE
+refresh_published_quality <- FALSE
 refresh_canadian_sources  <- TRUE
 run_financial_comparison <- TRUE
 run_acquisition_model    <- TRUE
@@ -107,6 +109,15 @@ if (rebuild_australian_sources) {
          '\nSet rebuild_australian_sources = TRUE if raw files are present.',
          call. = FALSE)
   }
+}
+
+# ---- 1A. PUBLISHED ACCC QUALITY (OPTIONAL) --------------------------------
+# Independent of the supplementary parser; reuse the validated CSV when present.
+# When enabled, require the validated quality cache to exist.
+if (run_published_quality) {
+  run_stage('Import published ACCC quality ratings', 'import_accc_quality.R',
+    expected_files = 'output/accc_quality_vector_ratings.csv',
+    bindings = list(refresh_published_quality = refresh_published_quality))
 }
 
 # ---- 1B. AUSTRALIAN TAXATION (OPTIONAL) -----------------------------------
@@ -208,6 +219,13 @@ if (run_presentation_exports) {
   run_stage('Prepare Datawrapper presentation exports',
             'prepare_datawrapper_exports.R', c(
               'output/presentation_data/00_data_catalog.csv',
+              if (run_published_quality) c(
+                'output/presentation_data/10e_australia_published_quality_long.csv',
+                'output/presentation_data/10f_australia_aeronautical_quality_1998_2019.csv',
+                'output/presentation_data/10g_australia_overall_quality_2016_2025.csv',
+                'output/presentation_data/10h_australia_passenger_quality_2016_2025.csv',
+                'output/presentation_data/10i_australia_airline_quality_2016_2025.csv'
+              ),
               if (refresh_australian_tax) c(
                 'output/presentation_data/04_australia_tax_cash_accounting_2016_2025.csv',
                 'output/presentation_data/04b_australia_ato_entities_2013_2025.csv',
