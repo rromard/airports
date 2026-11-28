@@ -1018,6 +1018,20 @@ require_columns(bridge, c("airport", "year_label", "scenario_name",
   "acquisition_required_revenue_m", "acquisition_required_revenue_per_pax_cad",
   "benchmark_required_revenue_m", "additional_revenue_gap_m"),
   "profitability benchmark export")
+target_cash_fields <- c("counterfactual_pre_tax_income_m", "estimated_tax_m",
+  "counterfactual_after_tax_income_m")
+require_columns(bridge, target_cash_fields, "profitability bridge income and tax")
+target_baseline <- full_financial |>
+  filter(country == "Canada", period == "2025", unit == "2025 CAD millions",
+    metric %in% c("profit_before_tax", "depreciation_amortisation",
+      "cash_capital_investment")) |>
+  select(airport, metric, value) |>
+  pivot_wider(names_from = metric, values_from = value) |>
+  rename(observed_pre_tax_income_m = profit_before_tax,
+    depreciation_amortisation_m = depreciation_amortisation,
+    cash_capital_investment_m = cash_capital_investment)
+check_keys(target_baseline, "airport", "Canadian investment baseline")
+if (nrow(target_baseline) != 5L) stop("Expected five Canadian investment baseline rows.")
 target <- bridge |>
   filter(year_label == "2025") |>
   select(airport, year_label, scenario_name, threshold_id,
@@ -1028,13 +1042,38 @@ target <- bridge |>
     additional_revenue_gap_m, additional_revenue_gap_per_pax_cad,
     observed_revenue_m, counterfactual_revenue_m,
     observed_ebitda_margin_pct, counterfactual_ebitda_margin_pct,
-    achieved_net_margin, target_net_margin)
+    achieved_net_margin, target_net_margin, all_of(target_cash_fields)) |>
+  left_join(target_baseline, by = "airport") |>
+  mutate(
+    residual_after_tax_and_investment_m = counterfactual_after_tax_income_m +
+      depreciation_amortisation_m - cash_capital_investment_m,
+    observed_residual_after_tax_and_investment_m = observed_pre_tax_income_m +
+      depreciation_amortisation_m - cash_capital_investment_m) |>
+  mutate(across(all_of(c(target_cash_fields, "observed_pre_tax_income_m",
+    "depreciation_amortisation_m", "cash_capital_investment_m",
+    "residual_after_tax_and_investment_m",
+    "observed_residual_after_tax_and_investment_m")),
+    ~ .x * 1e6 / passengers, .names = "{.col}_per_pax_cad"))
+# Keep the per-passenger names consistent with existing exports.
+target <- target |> rename_with(~ sub("_m_per_pax_cad$", "_per_pax_cad", .x),
+  ends_with("_m_per_pax_cad"))
+if (nrow(target) != 270L ||
+    any(!is.finite(target$passengers) | target$passengers <= 0) ||
+    any(!is.finite(as.matrix(target[c(target_cash_fields,
+      "observed_pre_tax_income_m", "depreciation_amortisation_m",
+      "cash_capital_investment_m")]))) ||
+    any(target$estimated_tax_m < 0 | target$cash_capital_investment_m < 0) ||
+    any(abs(target$counterfactual_pre_tax_income_m - target$estimated_tax_m -
+      target$counterfactual_after_tax_income_m) > 1e-5) ||
+    any(abs(target$counterfactual_after_tax_income_m / target$counterfactual_revenue_m -
+      target$achieved_net_margin) > 1e-7))
+  stop("Canadian profitability and investment bridge reconciliation failed.")
 check_keys(target, c("airport", "year_label", "scenario_name",
   "profitability_objective", "benchmark_mode"), "2025 profitability targets")
 export(target, "07_profitability_targets_2025.csv",
   "Final profitability thresholds",
   "Profitability bridge scenarios long CSV",
-  "2025 values include each airport and BIG4; independently derived pooled and year-matched Australian benchmarks. All dollar figures 2025 CAD; totals in millions.")
+  "2025 values include each airport and BIG4; independently derived pooled and year-matched Australian benchmarks. Canadian income, tax and investment measures repeat across benchmark modes; do not sum duplicates. All dollar figures 2025 CAD; _m totals in millions, _per_pax_cad per total passenger. Tax is modelled statutory income tax, not observed cash tax. Residual is net income plus observed depreciation/amortisation less observed cash capital investment; Canadian observed income tax assumed zero. Simplified proxy excludes debt principal, working capital and other cash/non-cash adjustments; not distributable cash flow.")
 
 # 7. ALLOCATION OF ADDITIONAL REVENUE: existing well-validated long panel.
 impacts <- input_csv(file.path(base_bridge, "revenue_impacts_2025_long.csv"))
